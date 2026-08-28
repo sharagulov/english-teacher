@@ -19,12 +19,14 @@ export function AreaChart({
   tone = 'accent',
   formatValue = (value: number) => String(Math.round(value)),
   emptyLabel = 'Пока нет данных',
+  showLabels = true,
 }: {
   points: SeriesPoint[];
   height?: number;
-  tone?: 'accent' | 'success';
+  tone?: 'accent' | 'success' | 'hero';
   formatValue?: (value: number) => string;
   emptyLabel?: string;
+  showLabels?: boolean;
 }) {
   const gradientId = useId();
   const [hover, setHover] = useState<number | null>(null);
@@ -45,11 +47,15 @@ export function AreaChart({
 
   const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
   const area = `${line} L${width},${baselineY} L0,${baselineY} Z`;
-  const color = tone === 'success' ? 'var(--success)' : 'var(--accent)';
+  const color = tone === 'success' ? 'var(--success)' : tone === 'hero' ? 'var(--dash-hero-ink)' : 'var(--accent)';
+  const isHero = tone === 'hero';
 
   if (!hasData) {
     return (
-      <div className="text-faint flex items-center justify-center text-[13px]" style={{ height }}>
+      <div
+        className={cx('flex items-center justify-center text-[13px]', isHero ? 'text-white/35' : 'text-faint')}
+        style={{ height }}
+      >
         {emptyLabel}
       </div>
     );
@@ -68,13 +74,13 @@ export function AreaChart({
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.16" />
+              <stop offset="0%" stopColor={color} stopOpacity={isHero ? '0.22' : '0.16'} />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
           </defs>
 
           <path d={area} fill={`url(#${gradientId})`} />
-          <path d={line} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+          <path d={line} fill="none" stroke={color} strokeWidth={isHero ? '1.8' : '1.4'} vectorEffect="non-scaling-stroke" />
 
           {/* Прозрачные области для наведения — по одной на точку. */}
           {points.map((point, index) => (
@@ -94,7 +100,7 @@ export function AreaChart({
         {hover != null && coords[hover] ? (
           <div className="pointer-events-none absolute inset-0" aria-hidden>
             <div
-              className="bg-line-strong absolute top-0 bottom-0 w-px"
+              className={cx('absolute top-0 bottom-0 w-px', isHero ? 'bg-white/25' : 'bg-line-strong')}
               style={{ left: `${(coords[hover]!.x / width) * 100}%` }}
             />
             <div
@@ -109,15 +115,17 @@ export function AreaChart({
         ) : null}
       </div>
 
-      <div className="text-faint mt-1.5 flex justify-between text-[11px]">
-        <span>{points[0]?.label}</span>
-        {active ? (
-          <span className="text-ink font-medium">
-            {active.label}: {formatValue(active.value ?? 0)}
-          </span>
-        ) : null}
-        <span>{points[points.length - 1]?.label}</span>
-      </div>
+      {showLabels ? (
+        <div className={cx('mt-1.5 flex justify-between text-[11px]', isHero ? 'text-white/40' : 'text-faint')}>
+          <span>{points[0]?.label}</span>
+          {active ? (
+            <span className={cx('font-medium', isHero ? 'text-white/80' : 'text-ink')}>
+              {active.label}: {formatValue(active.value ?? 0)}
+            </span>
+          ) : null}
+          <span>{points[points.length - 1]?.label}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -119,6 +119,18 @@ export const api = {
       request<{ result: AnswerResult; state: PoolState }>('POST', `/practice/pools/${id}/answer`, body),
     undo: (id: string, body: { wordId: number }) =>
       request<{ state: PoolState; undo: { rating: Pick<User, 'points' | 'level' | 'progress'> } }>('POST', `/practice/pools/${id}/undo`, body),
+    choiceHint: (id: string, body: { wordId: number }) =>
+      request<{
+        state: PoolState;
+        spend: {
+          cost: number;
+          points: number;
+          level: number;
+          leveledDown: boolean;
+          previousLevel: number;
+          progress: User['progress'];
+        };
+      }>('POST', `/practice/pools/${id}/choice-hint`, body),
     abandon: (id: string) => request<{ ok: boolean }>('POST', `/practice/pools/${id}/abandon`),
   },
 

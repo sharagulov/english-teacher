@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleHelp, Volume2 } from 'lucide-react';
+import { ArrowLeft, CircleHelp, Volume2, Wand2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
@@ -37,6 +37,7 @@ export function Session() {
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [sending, setSending] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [hinting, setHinting] = useState(false);
   const [finished, setFinished] = useState<AnswerResult['poolSummary'] | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +68,7 @@ export function Session() {
     if (!question || phase === 'feedback') return;
     askedAt.current = Date.now();
     setAnswer('');
+    setHinting(false);
     inputRef.current?.focus();
     if (question.direction === 'audio_en' && user?.soundEnabled !== false) {
       speak(question.prompt);
@@ -188,6 +190,43 @@ export function Session() {
     }
   }, [poolId, question, undoing, sending, patchUser, notify]);
 
+  const buyHint = useCallback(async () => {
+    if (!poolId || !question || hinting || sending || question.hintUsed) return;
+    if (!question.canAffordHint) {
+      notify({
+        title: 'Не хватает рейтинга',
+        description: `Подсказка стоит ${formatNumber(question.hintCost ?? 0)}`,
+        tone: 'danger',
+      });
+      return;
+    }
+
+    setHinting(true);
+    try {
+      const response = await api.practice.choiceHint(poolId, { wordId: question.wordId });
+      setState(response.state);
+      patchUser({
+        points: response.spend.points,
+        level: response.spend.level,
+        progress: response.spend.progress,
+      });
+      if (response.spend.leveledDown) {
+        notify({
+          title: `Уровень понижен до ${response.spend.level}`,
+          description: 'Режимы и оформления снова зависят от текущего рейтинга.',
+          tone: 'danger',
+        });
+      }
+    } catch (cause) {
+      notify({
+        title: cause instanceof ApiError ? cause.message : 'Подсказка недоступна',
+        tone: 'danger',
+      });
+    } finally {
+      setHinting(false);
+    }
+  }, [poolId, question, hinting, sending, patchUser, notify]);
+
   // ─── Клавиатура ───
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -304,7 +343,9 @@ export function Session() {
             setAnswer={setAnswer}
             onSubmit={(value) => void submit(value ?? answer)}
             onGiveUp={() => void submit(answer, { gaveUp: true })}
+            onHint={() => void buyHint()}
             sending={sending}
+            hinting={hinting}
             inputRef={inputRef}
           />
         ) : result ? (
@@ -415,7 +456,9 @@ function QuestionForm({
   setAnswer,
   onSubmit,
   onGiveUp,
+  onHint,
   sending,
+  hinting,
   inputRef,
 }: {
   question: Question;
@@ -423,7 +466,9 @@ function QuestionForm({
   setAnswer: (value: string) => void;
   onSubmit: (value?: string) => void;
   onGiveUp: () => void;
+  onHint: () => void;
   sending: boolean;
+  hinting: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const choices = question.choices;
@@ -437,7 +482,7 @@ function QuestionForm({
               <button
                 key={choice}
                 type="button"
-                disabled={sending}
+                disabled={sending || hinting}
                 onClick={() => onSubmit(choice)}
                 className="border-line bg-raised hover:border-line-strong flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left text-sm transition-colors duration-150 disabled:opacity-50"
               >
@@ -446,11 +491,27 @@ function QuestionForm({
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="secondary" size="md" disabled={sending} onClick={onGiveUp}>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="secondary" size="md" disabled={sending || hinting} onClick={onGiveUp}>
               <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
               Не знаю
             </Button>
+            {!question.hintUsed && question.hintCost != null ? (
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={sending || hinting || !question.canAffordHint}
+                onClick={onHint}
+                title={
+                  question.canAffordHint
+                    ? 'Убрать два неверных варианта'
+                    : `Нужно ${question.hintCost} очков рейтинга`
+                }
+              >
+                <Wand2 size={16} strokeWidth={1.75} aria-hidden="true" />
+                {hinting ? '…' : `−${formatNumber(question.hintCost)}`}
+              </Button>
+            ) : null}
             <span className="text-faint text-[12px]">
               <Kbd>Esc</Kbd>
             </span>

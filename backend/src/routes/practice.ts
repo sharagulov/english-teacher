@@ -5,9 +5,10 @@ import {
   MODE_LABELS,
   MODE_UNLOCK_LEVEL,
   PRACTICE_MODES,
+  choiceHintCost,
 } from '../lib/economy.js';
 import { CEFR_LEVELS, levelsUpTo } from '../lib/levels.js';
-import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, undoLastWrongAnswer } from '../services/practice.js';
+import { abandonPool, buyChoiceHint, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, undoLastWrongAnswer } from '../services/practice.js';
 
 const poolBody = z.object({
   mode: z.enum(PRACTICE_MODES as [string, ...string[]]).default('classic'),
@@ -37,7 +38,7 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
   app.get('/overview', async (request) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: request.userId },
-      select: { cefrLevel: true, level: true },
+      select: { cefrLevel: true, level: true, points: true },
     });
 
     const levels = levelsUpTo(user.cefrLevel);
@@ -61,6 +62,10 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
         unlocked: user.level >= MODE_UNLOCK_LEVEL[mode],
       })),
       topics: topics.map((t) => ({ topic: t.topic as string, count: t._count })),
+      choiceHint: {
+        cost: choiceHintCost(user.points),
+        description: 'В режиме «Выбор варианта» можно убрать два неверных варианта за рейтинг.',
+      },
     };
   });
 
@@ -113,6 +118,22 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
     const result = await submitAnswer({ userId: request.userId, poolId: id, ...parsed.data });
     const state = await getPoolState(request.userId, id);
     return { result, state };
+  });
+
+  app.post('/pools/:id/choice-hint', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = undoBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Некорректный запрос подсказки' });
+    }
+
+    try {
+      return await buyChoiceHint(request.userId, id, parsed.data.wordId);
+    } catch (cause) {
+      const statusCode = cause && typeof cause === 'object' && 'statusCode' in cause ? Number(cause.statusCode) : 500;
+      const message = cause instanceof Error ? cause.message : 'Не удалось взять подсказку';
+      return reply.code(statusCode).send({ error: message });
+    }
   });
 
   app.post('/pools/:id/undo', async (request, reply) => {

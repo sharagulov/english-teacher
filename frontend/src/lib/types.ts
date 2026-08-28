@@ -51,6 +51,10 @@ export interface Question {
   isRetry: boolean;
   /** 0 — обычная выдача, 1 — реже, 2 — почти не показывать. */
   dislikeLevel: number;
+  /** Подсказка «убрать два варианта» — только режим выбора. */
+  hintCost?: number;
+  hintUsed?: boolean;
+  canAffordHint?: boolean;
 }
 
 export interface PoolState {
@@ -148,6 +152,7 @@ export interface PracticeOverview {
   activePool: PoolState | null;
   modes: { mode: PracticeMode; label: string; unlockLevel: number; unlocked: boolean }[];
   topics: { topic: string; count: number }[];
+  choiceHint: { cost: number; description: string };
 }
 
 export interface StatsOverview {

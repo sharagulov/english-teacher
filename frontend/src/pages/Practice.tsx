@@ -52,7 +52,7 @@ function saveExcludedLevels(userId: string | undefined, levels: CefrLevel[]): vo
 const MODE_NOTES: Record<PracticeMode, string> = {
   classic: 'Слово по-английски — вы пишете перевод. Основной режим для набора словаря.',
   reverse: 'Слово по-русски — вы пишете английское. Активный навык: труднее, но полезнее.',
-  choice: 'Четыре варианта перевода. Быстрый разогрев и знакомство с новыми словами.',
+  choice: 'Четыре варианта перевода. Можно убрать два неверных за рейтинг — жалко, но иногда спасает.',
   listening: 'Слово звучит, вы записываете перевод. Тренирует восприятие на слух.',
   sprint: 'Только знакомые слова, без подсказок. Отработка скорости узнавания.',
   weak: 'Слова, на которых вы чаще всего ошибаетесь. Самый быстрый способ закрыть пробелы.',
@@ -316,6 +316,12 @@ export function Practice() {
                 {multiplier > 1 ? `, очки ×${multiplier}` : ''}
                 {excludedLevels.length > 0 ? `, без ${excludedLevels.join(', ')}` : ''}
               </p>
+              {mode === 'choice' && data.choiceHint ? (
+                <p className="text-faint mt-2 text-[12px] leading-relaxed">
+                  Подсказка убирает два неверных варианта и стоит {data.choiceHint.cost} рейтинга.
+                  Если очков станет меньше порога уровня — уровень понизится.
+                </p>
+              ) : null}
               {available < size ? (
                 <p className="text-warning mt-2 text-[12px] leading-relaxed">
                   Подходящих слов: {available}. Пулл будет меньше запрошенного.

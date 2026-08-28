@@ -23,6 +23,20 @@
   --warning: #b7791f;
   --warning-soft: #fdf6e7;
   --shadow: 0 1px 2px rgb(20 22 26 / 4%), 0 8px 24px -12px rgb(20 22 26 / 8%);
+
+  /* Главная: сцена и цветные плитки. Меняются вместе с темой. */
+  --dash-hero: #141414;
+  --dash-hero-ink: #f4f4f4;
+  --dash-hero-muted: #9a9a9a;
+  --dash-hero-line: rgb(255 255 255 / 10%);
+  --dash-a: #efe4a8;
+  --dash-a-ink: #1a1708;
+  --dash-b: #3d3428;
+  --dash-b-ink: #f4efe6;
+  --dash-c: #c9d6f5;
+  --dash-c-ink: #141824;
+  --dash-d: #e85c3a;
+  --dash-d-ink: #fff7f4;
 }
 
 [data-theme='paper'] {
@@ -36,6 +50,19 @@
   --ink-faint: #9d947f;
   --accent: #8a5a2b;
   --accent-soft: #f4ead9;
+
+  --dash-hero: #1c1914;
+  --dash-hero-ink: #f6f1e6;
+  --dash-hero-muted: #a89d88;
+  --dash-hero-line: rgb(246 241 230 / 12%);
+  --dash-a: #ead9a0;
+  --dash-a-ink: #1f1a0c;
+  --dash-b: #3a3226;
+  --dash-b-ink: #f3eadc;
+  --dash-c: #c5cfe4;
+  --dash-c-ink: #1a1c24;
+  --dash-d: #d45a32;
+  --dash-d-ink: #fff6f1;
 }
 
 [data-theme='night'] {
@@ -56,6 +83,19 @@
   --warning: #e8b23f;
   --warning-soft: #2a2213;
   --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px -12px rgb(0 0 0 / 60%);
+
+  --dash-hero: #1a1d21;
+  --dash-hero-ink: #f2f4f6;
+  --dash-hero-muted: #8b939c;
+  --dash-hero-line: rgb(242 244 246 / 10%);
+  --dash-a: #c9bc6e;
+  --dash-a-ink: #16140a;
+  --dash-b: #2a251e;
+  --dash-b-ink: #f0ebe3;
+  --dash-c: #3a4a6e;
+  --dash-c-ink: #e8eefc;
+  --dash-d: #c44a32;
+  --dash-d-ink: #fff4f0;
 }
 
 @theme inline {

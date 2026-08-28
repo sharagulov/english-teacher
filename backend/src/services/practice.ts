@@ -13,6 +13,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { todayKey } from '../lib/day.js';
 import {
   MODE_MULTIPLIER,
+  choiceHintCost,
   computeReward,
   levelFromPoints,
   levelProgress,
@@ -31,7 +32,7 @@ import {
 } from '../lib/srs.js';
 import { matchAnswer, parseStringArray, type MatchType } from '../lib/text.js';
 import { examplesForWord, prefetchExamples, type WordExampleView } from './examples.js';
-import { awardPoints, bumpDailyStat, checkDailyGoal, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
+import { awardPoints, bumpDailyStat, checkDailyGoal, grantAchievements, registerDailyActivity, spendPoints, type UnlockedAchievement } from './progress.js';
 
 /** Множитель веса в пулле по dislikeLevel: 0 — как обычно, 1 — реже, 2 — почти никогда. */
 const DISLIKE_WEIGHT = [1, 0.2, 0.02] as const;
@@ -287,6 +288,10 @@ export interface Question {
   isRetry: boolean;
   /** 0 — обычная выдача, 1 — реже, 2 — почти не показывать. */
   dislikeLevel: number;
+  /** Стоимость подсказки «убрать два варианта»; только в режиме выбора. */
+  hintCost?: number;
+  hintUsed?: boolean;
+  canAffordHint?: boolean;
 }
 
 export interface PoolState {
@@ -339,6 +344,17 @@ async function buildChoices(word: WordRecord, direction: Question['direction']):
   return shuffle([...options]);
 }
 
+function parseJsonStrings(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export async function getPoolState(userId: string, poolId: string): Promise<PoolState> {
   const pool = await prisma.pool.findFirstOrThrow({
     where: { id: poolId, userId },
@@ -365,14 +381,31 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
     const word = item.word;
     const prompt = direction === 'en_ru' || direction === 'audio_en' ? word.text : primaryTranslation(word);
     const answers = expectedAnswers(word, direction);
+    const ratingUser = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { points: true },
+    });
+    const cost = choiceHintCost(ratingUser.points);
 
-    const [choices, progressRow] = await Promise.all([
-      mode === 'choice' ? buildChoices(word, direction) : Promise.resolve(undefined),
-      prisma.userWord.findUnique({
-        where: { userId_wordId: { userId, wordId: word.id } },
-        select: { dislikeLevel: true },
-      }),
-    ]);
+    const progressRow = await prisma.userWord.findUnique({
+      where: { userId_wordId: { userId, wordId: word.id } },
+      select: { dislikeLevel: true },
+    });
+
+    let choices: string[] | undefined;
+    if (mode === 'choice') {
+      choices = parseJsonStrings(item.choicesJson) ?? (await buildChoices(word, direction));
+      if (!item.choicesJson) {
+        await prisma.poolItem.update({
+          where: { id: item.id },
+          data: { choicesJson: JSON.stringify(choices) },
+        });
+      }
+      const hidden = parseJsonStrings(item.hintHidden) ?? [];
+      if (hidden.length > 0) {
+        choices = choices.filter((option) => !hidden.includes(option));
+      }
+    }
 
     question = {
       wordId: word.id,
@@ -386,6 +419,13 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
       isRetry: item.wrongCount > 0,
       dislikeLevel: progressRow?.dislikeLevel ?? 0,
       ...(choices ? { choices } : {}),
+      ...(mode === 'choice'
+        ? {
+            hintCost: cost,
+            hintUsed: Boolean(item.hintHidden),
+            canAffordHint: ratingUser.points >= cost,
+          }
+        : {}),
     };
 
     await prisma.poolItem.update({ where: { id: item.id }, data: { lastShownAt: new Date() } });
@@ -458,7 +498,7 @@ export interface AnswerResult {
 
 /** Снимок для отката неверного ответа — хранится в Attempt.undoSnapshot. */
 interface UndoSnapshot {
-  poolItem: { attempts: number; wrongCount: number; position: number };
+  poolItem: { attempts: number; wrongCount: number; position: number; choicesJson: string | null; hintHidden: string | null };
   pool: { wrongCount: number; pointsEarned: number; durationMs: number };
   userWord: {
     existed: boolean;
@@ -579,7 +619,13 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
 
   const undoSnapshot: UndoSnapshot | null = canUndo
     ? {
-        poolItem: { attempts: item.attempts, wrongCount: item.wrongCount, position: item.position },
+        poolItem: {
+          attempts: item.attempts,
+          wrongCount: item.wrongCount,
+          position: item.position,
+          choicesJson: item.choicesJson,
+          hintHidden: item.hintHidden,
+        },
         pool: { wrongCount: pool.wrongCount, pointsEarned: pool.pointsEarned, durationMs: pool.durationMs },
         userWord: {
           existed: existing != null,
@@ -680,6 +726,8 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
         attempts: { increment: 1 },
         wrongCount: { increment: 1 },
         position: (maxPosition._max.position ?? item.position) + gap,
+        choicesJson: null,
+        hintHidden: null,
       },
     });
   }
@@ -884,6 +932,106 @@ async function computeSessionStreak(userId: string, poolId: string): Promise<num
   return streak;
 }
 
+/** Платная подсказка: оставляет верный вариант и один случайный неверный. */
+export async function buyChoiceHint(
+  userId: string,
+  poolId: string,
+  wordId: number,
+): Promise<{
+  state: PoolState;
+  spend: {
+    cost: number;
+    points: number;
+    level: number;
+    leveledDown: boolean;
+    previousLevel: number;
+    progress: LevelProgress;
+  };
+}> {
+  const pool = await prisma.pool.findFirst({ where: { id: poolId, userId } });
+  if (!pool || pool.status !== 'active') {
+    throw Object.assign(new Error('Этот пулл уже закрыт.'), { statusCode: 409 });
+  }
+  if (pool.mode !== 'choice') {
+    throw Object.assign(new Error('Подсказка доступна только в режиме «Выбор варианта».'), { statusCode: 400 });
+  }
+
+  const current = await prisma.poolItem.findFirst({
+    where: { poolId, solved: false },
+    orderBy: { position: 'asc' },
+    include: { word: true },
+  });
+  if (!current || current.wordId !== wordId) {
+    throw Object.assign(new Error('Подсказка доступна только для текущего слова.'), { statusCode: 409 });
+  }
+
+  if (current.hintHidden) {
+    const state = await getPoolState(userId, poolId);
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { points: true, level: true },
+    });
+    return {
+      state,
+      spend: {
+        cost: 0,
+        points: user.points,
+        level: user.level,
+        leveledDown: false,
+        previousLevel: user.level,
+        progress: levelProgress(user.points),
+      },
+    };
+  }
+
+  const direction = directionForMode('choice');
+  let options = parseJsonStrings(current.choicesJson) ?? (await buildChoices(current.word, direction));
+  if (!current.choicesJson) {
+    await prisma.poolItem.update({
+      where: { id: current.id },
+      data: { choicesJson: JSON.stringify(options) },
+    });
+  }
+  if (options.length < 4) {
+    throw Object.assign(new Error('Для этого слова не набралось четырёх вариантов.'), { statusCode: 400 });
+  }
+
+  const correct = direction === 'en_ru' ? primaryTranslation(current.word) : current.word.text;
+  const wrong = options.filter((option) => option !== correct);
+  if (wrong.length < 3) {
+    throw Object.assign(new Error('Недостаточно неверных вариантов для подсказки.'), { statusCode: 400 });
+  }
+
+  const hidden = shuffle(wrong).slice(0, 2);
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { points: true },
+  });
+  const cost = choiceHintCost(user.points);
+  const spend = await spendPoints(userId, {
+    points: cost,
+    reason: 'choice_hint',
+    meta: { poolId, wordId, hidden },
+  });
+
+  await prisma.poolItem.update({
+    where: { id: current.id },
+    data: { hintHidden: JSON.stringify(hidden) },
+  });
+
+  return {
+    state: await getPoolState(userId, poolId),
+    spend: {
+      cost,
+      points: spend.total,
+      level: spend.level,
+      leveledDown: spend.leveledDown,
+      previousLevel: spend.previousLevel,
+      progress: spend.progress,
+    },
+  };
+}
+
 /** Отменяет последний неверный ответ по слову в активном пулле. */
 export async function undoLastWrongAnswer(
   userId: string,
@@ -936,7 +1084,13 @@ export async function undoLastWrongAnswer(
 
     await tx.poolItem.update({
       where: { id: item.id },
-      data: snapshot.poolItem,
+      data: {
+        attempts: snapshot.poolItem.attempts,
+        wrongCount: snapshot.poolItem.wrongCount,
+        position: snapshot.poolItem.position,
+        choicesJson: snapshot.poolItem.choicesJson ?? null,
+        hintHidden: snapshot.poolItem.hintHidden ?? null,
+      },
     });
 
     await tx.pool.update({

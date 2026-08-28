@@ -20,7 +20,7 @@ model User {
   passwordHash String
   name         String
 
-  // Прогресс: очки рейтинга только накапливаются и задают уровень (1..1000)
+  // Прогресс: очки рейтинга задают уровень (1..1000). Тратятся на подсказку в «Выборе».
   points Int @default(50)
   level  Int @default(1)
 
@@ -220,6 +220,11 @@ model PoolItem {
   wrongCount   Int     @default(0)
   lastShownAt  DateTime?
   solvedAt     DateTime?
+
+  /** Зафиксированные варианты в режиме выбора (JSON-массив из 4 строк). */
+  choicesJson String?
+  /** Два скрытых неверных варианта после платной подсказки (JSON-массив). */
+  hintHidden  String?
 
   @@unique([poolId, wordId])
   @@index([poolId, solved])

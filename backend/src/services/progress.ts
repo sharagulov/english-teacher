@@ -12,6 +12,7 @@ import {
   dailyStreakReward,
   levelFromPoints,
   levelProgress,
+  type LevelProgress,
 } from '../lib/economy.js';
 import { daysBetween, todayKey } from '../lib/day.js';
 
@@ -118,6 +119,74 @@ export async function subtractPoints(userId: string, points: number, transaction
   }
 
   return { total, level, progress: levelProgress(total) };
+}
+
+export interface PointsSpend {
+  points: number;
+  total: number;
+  level: number;
+  previousLevel: number;
+  leveledDown: boolean;
+  progress: LevelProgress;
+}
+
+/**
+ * Списывает рейтинг (подсказка в «Выборе»). Уровень пересчитывается;
+ * уже выданные заморозки и открытия не забираем — только текущий доступ
+ * к режимам и темам смотрит на новый уровень.
+ */
+export async function spendPoints(
+  userId: string,
+  input: { points: number; reason: string; meta?: unknown },
+): Promise<PointsSpend> {
+  const amount = Math.max(0, Math.round(input.points));
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { points: true, level: true },
+  });
+
+  if (amount === 0) {
+    return {
+      points: 0,
+      total: user.points,
+      level: user.level,
+      previousLevel: user.level,
+      leveledDown: false,
+      progress: levelProgress(user.points),
+    };
+  }
+
+  if (user.points < amount) {
+    throw Object.assign(new Error('Не хватает рейтинга на подсказку'), { statusCode: 400 });
+  }
+
+  const total = user.points - amount;
+  const level = levelFromPoints(total);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { points: total, level },
+  });
+
+  await prisma.transaction.create({
+    data: {
+      userId,
+      amount: -amount,
+      reason: input.reason,
+      meta: input.meta === undefined ? null : JSON.stringify(input.meta),
+      balanceAfter: total,
+    },
+  });
+
+  return {
+    points: amount,
+    total,
+    level,
+    previousLevel: user.level,
+    leveledDown: level < user.level,
+    progress: levelProgress(total),
+  };
 }
 
 /** Инкрементально обновляет агрегат за день (для графиков и статистики). */
