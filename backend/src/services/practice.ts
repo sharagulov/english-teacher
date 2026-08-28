@@ -4,8 +4,8 @@
  * Правила пулла (основной режим):
  *  • пулл — это набор из N слов;
  *  • верный ответ убирает слово из пулла и приносит очки рейтинга;
- *  • неверный — показывает правильный перевод, слово остаётся в пулле и
- *    вернётся позже, пока не будет отгадано;
+ *  • неверный или «не знаю» — показывает правильный перевод, слово остаётся
+ *    в пулле и вернётся позже, пока не будет отгадано;
  *  • когда слова заканчиваются, пулл закрывается и можно собрать новый.
  */
 import { prisma } from '../db.js';
@@ -391,6 +391,8 @@ export interface SubmitAnswerInput {
   answer: string;
   responseMs: number;
   hintsUsed: number;
+  /** «Не знаю»: раскрыть ответ и засчитать промах, не выдавая ложный вариант. */
+  gaveUp?: boolean;
 }
 
 export interface AnswerResult {
@@ -447,10 +449,12 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
   const word = item.word;
   const answers = expectedAnswers(word, direction);
 
-  const match = matchAnswer(input.answer, answers, {
-    allowTypos: user.typoTolerance,
-    english: direction !== 'en_ru',
-  });
+  const match = input.gaveUp
+    ? { isCorrect: false, matchType: 'skipped' as const, matched: null }
+    : matchAnswer(input.answer, answers, {
+        allowTypos: user.typoTolerance,
+        english: direction !== 'en_ru',
+      });
 
   // ── Состояние слова в модели памяти ──
   const existing = await prisma.userWord.findUnique({

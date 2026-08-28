@@ -115,7 +115,7 @@ export const api = {
       request<PoolState>('POST', '/practice/pools', body),
     activePool: () => request<{ state: PoolState | null }>('GET', '/practice/pools/active'),
     pool: (id: string) => request<PoolState>('GET', `/practice/pools/${id}`),
-    answer: (id: string, body: { wordId: number; answer: string; responseMs: number; hintsUsed: number }) =>
+    answer: (id: string, body: { wordId: number; answer: string; responseMs: number; hintsUsed: number; gaveUp?: boolean }) =>
       request<{ result: AnswerResult; state: PoolState }>('POST', `/practice/pools/${id}/answer`, body),
     hint: (id: string, body: { wordId: number; kind: HintKind }) =>
       request<{ kind: string; value: string; penalty: number }>('POST', `/practice/pools/${id}/hint`, body),

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
 import {
   Badge,
   Button,
@@ -357,17 +358,24 @@ function WordModal({
               <ul className="space-y-2.5">
                 {word.examples.map((example) => (
                   <li key={example.text}>
-                    <p className="text-soft text-[13px] leading-snug">
-                      {splitAroundWord(example.text, word.text).map((part, index) =>
-                        part.match ? (
-                          <span key={index} className="text-ink font-semibold">
-                            {part.text}
-                          </span>
-                        ) : (
-                          <span key={index}>{part.text}</span>
-                        ),
-                      )}
-                    </p>
+                    <div className="flex items-start gap-1.5">
+                      <p className="text-soft flex-1 text-[13px] leading-snug">
+                        {splitAroundWord(example.text, word.text).map((part, index) =>
+                          part.match ? (
+                            <span key={index} className="text-ink font-semibold">
+                              {part.text}
+                            </span>
+                          ) : (
+                            <span key={index}>{part.text}</span>
+                          ),
+                        )}
+                      </p>
+                      {isAiGeneratedExample(example.source) ? (
+                        <span className="mt-0.5">
+                          <AiExampleIndicator />
+                        </span>
+                      ) : null}
+                    </div>
                     {example.translation ? (
                       <p className="text-faint mt-0.5 text-[13px]">{example.translation}</p>
                     ) : null}

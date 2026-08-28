@@ -25,6 +25,8 @@ const answerBody = z.object({
   answer: z.string().max(200),
   responseMs: z.number().int().min(0).max(600_000).default(0),
   hintsUsed: z.number().int().min(0).max(4).default(0),
+  /** Отказ от ответа: показать перевод и засчитать как промах, без подбора варианта. */
+  gaveUp: z.boolean().optional(),
 });
 
 const hintBody = z.object({

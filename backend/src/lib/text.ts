@@ -88,7 +88,7 @@ export function typoBudget(length: number): number {
   return 2;
 }
 
-export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong';
+export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong' | 'skipped';
 
 export interface MatchResult {
   isCorrect: boolean;

@@ -1,5 +1,7 @@
+import { CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
 import { Badge, Button, Card, ErrorNote, Kbd, LinkButton, Loading, Progress, Stat, cx } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import {
@@ -99,10 +101,10 @@ export function Session() {
   }, []);
 
   const submit = useCallback(
-    async (given: string) => {
+    async (given: string, options?: { gaveUp?: boolean }) => {
       if (!poolId || !question || sending) return;
       const trimmed = given.trim();
-      if (!trimmed) return;
+      if (!options?.gaveUp && !trimmed) return;
 
       setSending(true);
       try {
@@ -111,6 +113,7 @@ export function Session() {
           answer: trimmed,
           responseMs: Math.min(600_000, Date.now() - askedAt.current),
           hintsUsed: hints.length,
+          ...(options?.gaveUp ? { gaveUp: true } : {}),
         });
 
         setPending(response.state);
@@ -184,6 +187,12 @@ export function Session() {
         if (next && phase === 'question') void takeHint(next.kind);
         return;
       }
+      if (phase === 'question' && event.key === 'Escape') {
+        if (event.repeat) return;
+        event.preventDefault();
+        void submit(answer, { gaveUp: true });
+        return;
+      }
       if (phase === 'feedback') {
         // Разбор держим на экране, пока пользователь сам не нажмёт клавишу.
         if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -202,7 +211,7 @@ export function Session() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [phase, question, hints, result, advance, submit, takeHint]);
+  }, [phase, question, answer, hints, result, advance, submit, takeHint]);
 
   if (loadError) {
     return (
@@ -275,7 +284,8 @@ export function Session() {
             question={question}
             answer={answer}
             setAnswer={setAnswer}
-            onSubmit={() => void submit(answer)}
+            onSubmit={(value) => void submit(value ?? answer)}
+            onGiveUp={() => void submit(answer, { gaveUp: true })}
             sending={sending}
             inputRef={inputRef}
             hints={hints}
@@ -360,6 +370,7 @@ function QuestionForm({
   answer,
   setAnswer,
   onSubmit,
+  onGiveUp,
   sending,
   inputRef,
   hints,
@@ -369,7 +380,8 @@ function QuestionForm({
   question: Question;
   answer: string;
   setAnswer: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value?: string) => void;
+  onGiveUp: () => void;
   sending: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   hints: RevealedHint[];
@@ -387,10 +399,7 @@ function QuestionForm({
               key={choice}
               type="button"
               disabled={sending}
-              onClick={() => {
-                setAnswer(choice);
-                onSubmit();
-              }}
+              onClick={() => onSubmit(choice)}
               className="border-line bg-raised hover:border-line-strong flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left text-sm transition-colors duration-150 disabled:opacity-50"
             >
               <Kbd>{index + 1}</Kbd>
@@ -423,6 +432,16 @@ function QuestionForm({
           </div>
         </form>
       )}
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button variant="ghost" size="md" disabled={sending} onClick={onGiveUp}>
+          <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
+          Не знаю
+        </Button>
+        <span className="text-faint text-[12px]">
+          <Kbd>Esc</Kbd>
+        </span>
+      </div>
 
       {/* ─── Подсказки: при готовых вариантах в них нет смысла ─── */}
       <div className={cx('mt-6', choices && choices.length > 0 && 'hidden')}>
@@ -487,7 +506,9 @@ function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void
                 ? result.matchType === 'exact'
                   ? 'Верно'
                   : `Верно (${MATCH_TYPE_LABELS[result.matchType]})`
-                : 'Неверно'}
+                : result.matchType === 'skipped'
+                  ? 'Не знаю'
+                  : 'Неверно'}
             </p>
             <p className="word-display text-ink mt-2 text-[26px] leading-tight font-semibold">
               {result.word.text} — {result.correctAnswer}
@@ -608,19 +629,22 @@ function Examples({ word }: { word: AnswerResult['word'] }) {
                   ),
                 )}
               </p>
-              {speechSupported() ? (
-                <button
-                  type="button"
-                  onClick={() => speak(example.text)}
-                  className="text-faint hover:text-ink mt-0.5 shrink-0 transition-colors"
-                  aria-label="Прослушать пример"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 9v6h3l5 4V5L7 9H4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                    <path d="M16 8.5a5 5 0 0 1 0 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                </button>
-              ) : null}
+              <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+                {isAiGeneratedExample(example.source) ? <AiExampleIndicator /> : null}
+                {speechSupported() ? (
+                  <button
+                    type="button"
+                    onClick={() => speak(example.text)}
+                    className="text-faint hover:text-ink transition-colors"
+                    aria-label="Прослушать пример"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M4 9v6h3l5 4V5L7 9H4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                      <path d="M16 8.5a5 5 0 0 1 0 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
             </div>
             {example.translation ? <p className="text-faint mt-1 text-[13px]">{example.translation}</p> : null}
           </li>

@@ -124,6 +124,7 @@ export const MATCH_TYPE_LABELS: Record<string, string> = {
   alternative: 'другой вариант',
   typo: 'с опечаткой',
   wrong: 'неверно',
+  skipped: 'не знаю',
 };
 
 export const MODE_LABELS: Record<string, string> = {

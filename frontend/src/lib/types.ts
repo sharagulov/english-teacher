@@ -4,7 +4,7 @@ export type PracticeMode = 'classic' | 'reverse' | 'choice' | 'listening' | 'spr
 
 export type WordStatus = 'new' | 'learning' | 'review' | 'mastered' | 'leech';
 
-export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong';
+export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong' | 'skipped';
 
 export type HintKind = 'length' | 'gloss' | 'letter' | 'choices';
 
