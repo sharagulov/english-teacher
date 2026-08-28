@@ -22,6 +22,7 @@ import {
   formatPercent,
   formatRelative,
   formatResponseTime,
+  splitAroundWord,
 } from '../lib/format';
 import { playPronunciation } from '../lib/speech';
 import type { CefrLevel, DictionaryWord, WordStatus } from '../lib/types';
@@ -350,7 +351,31 @@ function WordModal({
 
           <p className="text-ink mt-4 text-[15px]">{word.translations.join(', ')}</p>
           {word.gloss ? <p className="text-soft mt-1.5 text-[13px] italic">{word.gloss}</p> : null}
-          {word.example ? <p className="text-soft mt-2 text-[13px]">{word.example}</p> : null}
+          {word.examples.length > 0 ? (
+            <div className="border-line mt-5 border-t pt-4">
+              <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Примеры</p>
+              <ul className="space-y-2.5">
+                {word.examples.map((example) => (
+                  <li key={example.text}>
+                    <p className="text-soft text-[13px] leading-snug">
+                      {splitAroundWord(example.text, word.text).map((part, index) =>
+                        part.match ? (
+                          <span key={index} className="text-ink font-semibold">
+                            {part.text}
+                          </span>
+                        ) : (
+                          <span key={index}>{part.text}</span>
+                        ),
+                      )}
+                    </p>
+                    {example.translation ? (
+                      <p className="text-faint mt-0.5 text-[13px]">{example.translation}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {word.senses.length > 0 ? (
             <div className="border-line mt-5 border-t pt-4">

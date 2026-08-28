@@ -11,7 +11,7 @@ export interface Toast {
 
 interface UiState {
   theme: Theme;
-  /** Светлая тема доступна всегда, остальные покупаются в магазине. */
+  /** Светлая тема доступна всегда, остальные открываются уровнем рейтинга. */
   unlockedThemes: Theme[];
   setUnlockedThemes: (themes: Theme[]) => void;
   setTheme: (theme: Theme) => void;
@@ -20,11 +20,21 @@ interface UiState {
   dismiss: (id: number) => void;
 }
 
-/** Код товара в магазине → тема оформления. */
-export const THEME_BY_ITEM_CODE: Record<string, Theme> = {
-  theme_paper: 'paper',
-  theme_night: 'night',
+/**
+ * С какого уровня доступно оформление. Те же пороги заданы на сервере
+ * (backend/src/lib/economy.ts) — здесь они нужны, чтобы тема применялась
+ * сразу после входа, не дожидаясь ответа сервера.
+ */
+export const THEME_UNLOCK_LEVEL: Record<Theme, number> = {
+  light: 1,
+  paper: 5,
+  night: 12,
 };
+
+/** Какие оформления открыты на этом уровне рейтинга. */
+export function themesForLevel(level: number): Theme[] {
+  return (Object.keys(THEME_UNLOCK_LEVEL) as Theme[]).filter((theme) => level >= THEME_UNLOCK_LEVEL[theme]);
+}
 
 const THEME_KEY = 'lexio.theme';
 
@@ -53,7 +63,11 @@ export const useUi = create<UiState>((set, get) => ({
 
   setTheme: (theme) => {
     if (!get().unlockedThemes.includes(theme)) {
-      get().notify({ title: 'Оформление не куплено', description: 'Его можно приобрести в магазине', tone: 'neutral' });
+      get().notify({
+        title: 'Оформление ещё закрыто',
+        description: `Откроется на ${THEME_UNLOCK_LEVEL[theme]} уровне рейтинга`,
+        tone: 'neutral',
+      });
       return;
     }
     localStorage.setItem(THEME_KEY, theme);

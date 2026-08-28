@@ -39,7 +39,8 @@ const auth = await call('POST', '/auth/register', {
   timezoneOffset: 180,
 });
 token = auth.token;
-ok('пользователь', `${auth.user.name}, монет ${auth.user.coins}, уровень ${auth.user.level}`);
+ok('пользователь', `${auth.user.name}, очков ${auth.user.points}, уровень ${auth.user.level}`);
+ok('прогресс уровня', `${auth.user.progress.pointsIntoLevel}/${auth.user.progress.pointsForLevel} до ${auth.user.progress.level + 1} уровня`);
 
 console.log('\n3. Обзор режимов');
 const overview = await call('GET', '/practice/overview');
@@ -63,7 +64,7 @@ const wrong = await call('POST', `/practice/pools/${poolId}/answer`, {
 });
 ok('результат', wrong.result.isCorrect ? 'ВЕРНО (ошибка теста!)' : 'неверно, как и ожидалось');
 ok('показан правильный перевод', wrong.result.correctAnswer);
-ok('монет за ошибку', wrong.result.reward.coins);
+ok('очков за ошибку', wrong.result.reward.points);
 ok('слов осталось в пулле', wrong.state.progress.remaining);
 const wrongWordId = state.question.wordId;
 
@@ -100,7 +101,10 @@ ok('неотгаданное слово вернулось в пулл', seenAga
 ok('пулл завершён', state.pool.status);
 if (lastResult?.poolSummary) {
   const s = lastResult.poolSummary;
-  ok('итог пулла', `верно ${s.correct}, ошибок ${s.wrong}, точность ${(s.accuracy * 100).toFixed(0)}%, монет ${s.coins}, опыта ${s.xp}`);
+  ok('итог пулла', `верно ${s.correct}, ошибок ${s.wrong}, точность ${(s.accuracy * 100).toFixed(0)}%, очков ${s.points}`);
+}
+if (lastResult?.rating) {
+  ok('рейтинг', `${lastResult.rating.points} очков, уровень ${lastResult.rating.level}`);
 }
 if (lastResult?.achievements?.length) {
   ok('достижения', lastResult.achievements.map((a) => a.title).join(', '));
@@ -112,7 +116,7 @@ const hint = await call('POST', `/practice/pools/${state.pool.id}/hint`, {
   wordId: state.question.wordId,
   kind: 'letter',
 });
-ok('подсказка «первая буква»', `«${hint.value}», стоимость ${hint.cost}, остаток ${hint.balance}`);
+ok('подсказка «первая буква»', `«${hint.value}», награда за слово ниже на ${Math.round(hint.penalty * 100)}%`);
 
 console.log('\n8. Статистика');
 const stats = await call('GET', '/stats/overview');
@@ -121,7 +125,7 @@ ok('точность', `${(stats.answers.accuracy * 100).toFixed(0)}%`);
 ok('средняя скорость ответа', `${stats.answers.avgResponseMs} мс`);
 ok('дневная цель', `${stats.today.correct}/${stats.today.goal}`);
 ok('к повторению сейчас', stats.review.dueNow);
-ok('баланс', `${stats.economy.balance} монет (заработано ${stats.economy.earned}, потрачено ${stats.economy.spent})`);
+ok('рейтинг', `${stats.rating.points} очков, уровень ${stats.rating.level}, до следующего ${stats.rating.progress.pointsToNext}`);
 
 const table = await call('GET', '/stats/words?sort=errors&order=desc&perPage=5');
 ok('таблица слов', `${table.total} записей`);
@@ -136,10 +140,11 @@ ok('разрез по уровням', breakdown.byLevel.filter((l) => l.total >
 const daily = await call('GET', '/stats/daily?days=7');
 ok('дней в серии данных', daily.series.length);
 
-console.log('\n9. Магазин');
-const shop = await call('GET', '/shop');
-ok('товаров', shop.items.length);
-ok('доступно к покупке', shop.items.filter((i) => i.canBuy).map((i) => i.code).join(', ') || 'нет (мало монет)');
+console.log('\n9. Награды за уровень');
+const rewards = await call('GET', '/rewards');
+ok('всего наград', rewards.items.length);
+ok('открыто', rewards.items.filter((i) => i.unlocked).map((i) => i.code).join(', ') || 'ничего');
+ok('заморозок серии', `${rewards.streakFreezes} из ${rewards.maxStreakFreezes}`);
 
 console.log('\n10. Прочие режимы');
 for (const mode of ['choice', 'reverse', 'srs', 'weak']) {

@@ -16,6 +16,7 @@
     "setup": "npm install && npm run db:setup --workspace backend",
     "db:setup": "npm run db:setup --workspace backend",
     "db:import": "npm run db:import --workspace backend",
+    "db:examples": "npm run db:examples --workspace backend",
     "db:reset": "npm run db:reset --workspace backend",
     "db:studio": "npm run db:studio --workspace backend",
     "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend"

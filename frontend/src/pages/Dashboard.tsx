@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { ActivityCalendar, AreaChart, Ring, StackedBar } from '../components/charts';
 import { Badge, Card, EmptyState, ErrorNote, LinkButton, Loading, SectionTitle, Stat } from '../components/ui';
 import { api } from '../lib/api';
-import { formatDayKey, formatDuration, formatNumber, formatPercent, plural } from '../lib/format';
+import { formatDayKey, formatDuration, formatNumber, formatPercent, formatPoints, plural } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
 import { useAuth } from '../store/auth';
 
@@ -15,7 +15,7 @@ export function Dashboard() {
   if (stats.error) return <ErrorNote message={stats.error} onRetry={stats.reload} />;
   if (!stats.data || !user) return null;
 
-  const { words, answers, today, review, pools, economy } = stats.data;
+  const { words, answers, today, review, pools, rating } = stats.data;
   const series = daily.data?.series ?? [];
 
   const goalDone = today.goalProgress >= 1;
@@ -55,13 +55,22 @@ export function Dashboard() {
             <p className="text-soft mt-0.5 text-[12px]">
               {plural(today.attempts, 'ответ', 'ответа', 'ответов')} · {formatDuration(today.timeMs)}
             </p>
-            <p className="text-faint mt-0.5 text-[12px]">
-              +{today.coins} монет, +{today.xp} опыта
-            </p>
+            <p className="text-faint mt-0.5 text-[12px]">+{formatPoints(today.points)} за день</p>
           </div>
         </div>
 
         <div className="border-line hidden h-14 border-l sm:block" />
+
+        <Stat
+          label="Уровень"
+          value={String(rating.level)}
+          hint={
+            rating.progress.isMax
+              ? 'максимум из 1000'
+              : `${formatNumber(rating.points)} очков · до ${rating.level + 1} ур. ${formatNumber(rating.progress.pointsToNext)}`
+          }
+          tone="accent"
+        />
 
         <Stat
           label="Дневная серия"
@@ -167,14 +176,23 @@ export function Dashboard() {
         </Card>
 
         <Card className="lg:w-64">
-          <SectionTitle title="Монеты" />
-          <div className="space-y-4">
-            <Stat label="Баланс" value={formatNumber(economy.balance)} />
-            <Stat label="Заработано" value={formatNumber(economy.earned)} tone="success" />
-            <Stat label="Потрачено" value={formatNumber(economy.spent)} />
+          <SectionTitle title="Рейтинг" />
+          <div className="flex items-center gap-4">
+            <Ring value={rating.progress.progress} size={72}>
+              <span className="text-[16px] font-semibold tabular-nums">{rating.level}</span>
+            </Ring>
+            <div>
+              <p className="text-ink text-sm font-medium tabular-nums">{formatNumber(rating.points)}</p>
+              <p className="text-faint mt-0.5 text-[12px]">очков всего</p>
+            </div>
           </div>
-          <LinkButton to="/shop" size="sm" variant="secondary" block className="mt-5">
-            В магазин
+          <p className="text-soft mt-4 text-[12px] leading-relaxed">
+            {rating.progress.isMax
+              ? 'Тысячный уровень взят — это предел.'
+              : `До ${rating.level + 1} уровня — ${formatPoints(rating.progress.pointsToNext)}.`}
+          </p>
+          <LinkButton to="/rewards" size="sm" variant="secondary" block className="mt-5">
+            Награды за уровни
           </LinkButton>
         </Card>
       </section>

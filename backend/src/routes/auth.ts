@@ -24,10 +24,8 @@ export async function publicUser(userId: string) {
       id: true,
       email: true,
       name: true,
-      coins: true,
-      xp: true,
+      points: true,
       level: true,
-      totalDelta: true,
       dailyStreak: true,
       longestStreak: true,
       streakFreezes: true,
@@ -42,7 +40,7 @@ export async function publicUser(userId: string) {
     },
   });
 
-  return { ...user, progress: levelProgress(user.xp) };
+  return { ...user, progress: levelProgress(user.points) };
 }
 
 const authRoutes: FastifyPluginAsync = async (app) => {

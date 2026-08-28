@@ -1,66 +1,85 @@
 /**
  * Начисления, дневная активность и достижения.
- * Всё, что меняет баланс пользователя, проходит через этот модуль — так
- * история операций всегда сходится с текущим балансом.
+ * Всё, что меняет рейтинг пользователя, проходит через этот модуль — так
+ * история начислений всегда сходится с текущим рейтингом.
  */
 import { prisma } from '../db.js';
 import { ACHIEVEMENTS_BY_CODE, evaluateAchievements, type AchievementMetrics } from '../lib/achievements.js';
-import { DAILY_GOAL_REWARD, dailyStreakReward, levelProgress } from '../lib/economy.js';
+import {
+  DAILY_GOAL_REWARD,
+  FREEZE_GRANT_EVERY,
+  MAX_STREAK_FREEZES,
+  dailyStreakReward,
+  levelFromPoints,
+} from '../lib/economy.js';
 import { daysBetween, todayKey } from '../lib/day.js';
 
-export interface BalanceChange {
-  coins: number;
-  xp: number;
-  balance: number;
+export interface PointsAward {
+  /** Сколько очков начислено этой операцией. */
+  points: number;
+  /** Рейтинг после начисления. */
+  total: number;
   level: number;
+  previousLevel: number;
   leveledUp: boolean;
+  /** Сколько заморозок серии выдано за взятые уровни. */
+  freezesGranted: number;
 }
 
-/** Изменяет баланс и опыт, записывая операцию в историю. */
-export async function applyBalance(
+/**
+ * Сколько заморозок серии положено за переход с одного уровня на другой.
+ * Заморозки выдаются кратными уровнями, а держать их можно не больше лимита —
+ * поэтому запас восполняется по мере роста, но не копится бесконечно.
+ */
+function freezesForLevelUp(previousLevel: number, nextLevel: number, held: number): number {
+  const earned = Math.floor(nextLevel / FREEZE_GRANT_EVERY) - Math.floor(previousLevel / FREEZE_GRANT_EVERY);
+  return Math.max(0, Math.min(earned, MAX_STREAK_FREEZES - held));
+}
+
+/** Начисляет очки рейтинга, записывая операцию в историю. */
+export async function awardPoints(
   userId: string,
-  input: { coins?: number; xp?: number; reason: string; meta?: unknown },
-): Promise<BalanceChange> {
-  const coins = input.coins ?? 0;
-  const xp = input.xp ?? 0;
+  input: { points: number; reason: string; meta?: unknown },
+): Promise<PointsAward> {
+  const points = Math.max(0, Math.round(input.points));
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
-    select: { coins: true, xp: true, level: true, totalDelta: true },
+    select: { points: true, level: true, streakFreezes: true },
   });
 
-  const nextCoins = Math.max(0, user.coins + coins);
-  const nextXp = Math.max(0, user.xp + xp);
-  const nextLevel = levelProgress(nextXp).level;
+  const total = user.points + points;
+  const level = levelFromPoints(total);
+  const freezesGranted = level > user.level ? freezesForLevelUp(user.level, level, user.streakFreezes) : 0;
 
   await prisma.user.update({
     where: { id: userId },
     data: {
-      coins: nextCoins,
-      xp: nextXp,
-      level: nextLevel,
-      totalDelta: coins > 0 ? { increment: coins } : undefined,
+      points: total,
+      level,
+      ...(freezesGranted > 0 ? { streakFreezes: { increment: freezesGranted } } : {}),
     },
   });
 
-  if (coins !== 0) {
+  if (points !== 0) {
     await prisma.transaction.create({
       data: {
         userId,
-        amount: coins,
+        amount: points,
         reason: input.reason,
         meta: input.meta === undefined ? null : JSON.stringify(input.meta),
-        balanceAfter: nextCoins,
+        balanceAfter: total,
       },
     });
   }
 
   return {
-    coins,
-    xp,
-    balance: nextCoins,
-    level: nextLevel,
-    leveledUp: nextLevel > user.level,
+    points,
+    total,
+    level,
+    previousLevel: user.level,
+    leveledUp: level > user.level,
+    freezesGranted,
   };
 }
 
@@ -68,7 +87,7 @@ export async function applyBalance(
 export async function bumpDailyStat(
   userId: string,
   day: string,
-  patch: Partial<Record<'attempts' | 'correct' | 'wrong' | 'newWords' | 'learned' | 'mastered' | 'coins' | 'xp' | 'timeMs' | 'aiTasks' | 'poolsDone', number>>,
+  patch: Partial<Record<'attempts' | 'correct' | 'wrong' | 'newWords' | 'learned' | 'mastered' | 'points' | 'timeMs' | 'aiTasks' | 'poolsDone', number>>,
 ): Promise<void> {
   const increments = Object.fromEntries(
     Object.entries(patch)
@@ -88,8 +107,7 @@ export async function bumpDailyStat(
       newWords: patch.newWords ?? 0,
       learned: patch.learned ?? 0,
       mastered: patch.mastered ?? 0,
-      coins: patch.coins ?? 0,
-      xp: patch.xp ?? 0,
+      points: patch.points ?? 0,
       timeMs: patch.timeMs ?? 0,
       aiTasks: patch.aiTasks ?? 0,
       poolsDone: patch.poolsDone ?? 0,
@@ -101,7 +119,7 @@ export interface DailyActivityResult {
   streak: number;
   streakChanged: boolean;
   freezeUsed: boolean;
-  rewards: { reason: string; coins: number; xp: number }[];
+  rewards: { reason: string; points: number }[];
 }
 
 /**
@@ -157,11 +175,11 @@ export async function registerDailyActivity(userId: string): Promise<DailyActivi
   });
 
   if (user.lastRewardedDay !== today) {
-    const coins = dailyStreakReward(streak);
+    const points = dailyStreakReward(streak);
     await prisma.user.update({ where: { id: userId }, data: { lastRewardedDay: today } });
-    await applyBalance(userId, { coins, reason: 'daily_streak', meta: { streak } });
-    await bumpDailyStat(userId, today, { coins });
-    rewards.push({ reason: 'daily_streak', coins, xp: 0 });
+    await awardPoints(userId, { points, reason: 'daily_streak', meta: { streak } });
+    await bumpDailyStat(userId, today, { points });
+    rewards.push({ reason: 'daily_streak', points });
   }
 
   return { streak, streakChanged: true, freezeUsed, rewards };
@@ -189,8 +207,8 @@ export async function checkDailyGoal(userId: string): Promise<{ reached: boolean
   });
   if (alreadyRewarded) return { reached, justCompleted: false, correct, goal: user.dailyGoalWords };
 
-  await applyBalance(userId, { ...DAILY_GOAL_REWARD, reason: 'daily_goal', meta: { correct } });
-  await bumpDailyStat(userId, today, DAILY_GOAL_REWARD);
+  await awardPoints(userId, { points: DAILY_GOAL_REWARD, reason: 'daily_goal', meta: { correct } });
+  await bumpDailyStat(userId, today, { points: DAILY_GOAL_REWARD });
 
   return { reached, justCompleted: true, correct, goal: user.dailyGoalWords };
 }
@@ -198,7 +216,7 @@ export async function checkDailyGoal(userId: string): Promise<{ reached: boolean
 /** Собирает показатели пользователя для сверки с порогами достижений. */
 async function collectMetrics(userId: string): Promise<AchievementMetrics> {
   const [user, words, attempts, pools, perfectPools, aiTasks, bestStreak] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { dailyStreak: true, totalDelta: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { dailyStreak: true, level: true } }),
     prisma.userWord.groupBy({ by: ['status'], where: { userId }, _count: true }),
     prisma.attempt.count({ where: { userId, isCorrect: true } }),
     prisma.pool.count({ where: { userId, status: 'completed' } }),
@@ -219,7 +237,7 @@ async function collectMetrics(userId: string): Promise<AchievementMetrics> {
     perfectPools,
     bestSessionStreak: bestStreak._max.bestStreak ?? 0,
     aiTasksDone: aiTasks,
-    coinsEarned: user.totalDelta,
+    ratingLevel: user.level,
   };
 }
 
@@ -227,8 +245,7 @@ export interface UnlockedAchievement {
   code: string;
   title: string;
   description: string;
-  coins: number;
-  xp: number;
+  points: number;
 }
 
 /** Выдаёт все достижения, порог которых пройден. Безопасно вызывать часто. */
@@ -252,17 +269,15 @@ export async function grantAchievements(userId: string): Promise<UnlockedAchieve
       // Уже выдано в параллельном запросе — пропускаем.
       continue;
     }
-    await applyBalance(userId, {
-      coins: achievement.coins,
-      xp: achievement.xp,
+    await awardPoints(userId, {
+      points: achievement.points,
       reason: `achievement:${achievement.code}`,
     });
     unlocked.push({
       code: achievement.code,
       title: achievement.title,
       description: achievement.description,
-      coins: achievement.coins,
-      xp: achievement.xp,
+      points: achievement.points,
     });
   }
 

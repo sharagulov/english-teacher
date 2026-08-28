@@ -6,6 +6,7 @@
  */
 import { prisma } from '../db.js';
 import { todayKey } from '../lib/day.js';
+import { CHAT_TURN_REWARD, levelProgress, type LevelProgress } from '../lib/economy.js';
 import {
   AI_TASK_LABELS,
   GRAMMAR_TOPICS,
@@ -22,7 +23,7 @@ import {
   type AiTaskType,
 } from '../lib/ai.js';
 import { matchAnswer, parseStringArray } from '../lib/text.js';
-import { applyBalance, bumpDailyStat, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
+import { awardPoints, bumpDailyStat, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
 
 /** Слова, которые стоит закрепить: чаще всего проваленные и просроченные. */
 async function weakWords(userId: string, limit = 8): Promise<string[]> {
@@ -261,13 +262,13 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
 
 // ─────────────────────────────── Проверка ответа ───────────────────────────────
 
-/** Награда за задание ИИ зависит от качества ответа. */
-function aiReward(score: number, type: AiTaskType) {
+/** Награда за задание ИИ зависит от качества ответа. Письменная работа дороже: она объёмнее. */
+function aiReward(score: number, type: AiTaskType): number {
   const base = type === 'writing' ? 2 : 1;
-  if (score >= 90) return { coins: 20 * base, xp: 30 * base };
-  if (score >= 70) return { coins: 12 * base, xp: 20 * base };
-  if (score >= 50) return { coins: 6 * base, xp: 12 * base };
-  return { coins: 1, xp: 4 };
+  if (score >= 90) return 50 * base;
+  if (score >= 70) return 32 * base;
+  if (score >= 50) return 18 * base;
+  return 5;
 }
 
 export interface SubmitTaskResult {
@@ -279,8 +280,8 @@ export interface SubmitTaskResult {
   praise: string;
   /** Эталон и пояснение раскрываются только после ответа. */
   reference: Record<string, unknown>;
-  reward: { coins: number; xp: number };
-  balance: { coins: number; xp: number; level: number; leveledUp: boolean };
+  reward: { points: number };
+  rating: { points: number; level: number; leveledUp: boolean; freezesGranted: number; progress: LevelProgress };
   achievements: UnlockedAchievement[];
 }
 
@@ -376,8 +377,7 @@ export async function submitTask(userId: string, taskId: string, answer: string)
       score,
       isCorrect,
       feedback: JSON.stringify({ verdict, errors, better, praise }),
-      coins: reward.coins,
-      xp: reward.xp,
+      points: reward,
     },
   });
 
@@ -385,8 +385,8 @@ export async function submitTask(userId: string, taskId: string, answer: string)
   const today = todayKey(user.timezoneOffset);
 
   await registerDailyActivity(userId);
-  const balance = await applyBalance(userId, { ...reward, reason: `ai:${type}`, meta: { taskId: task.id, score } });
-  await bumpDailyStat(userId, today, { aiTasks: 1, coins: reward.coins, xp: reward.xp });
+  const award = await awardPoints(userId, { points: reward, reason: `ai:${type}`, meta: { taskId: task.id, score } });
+  await bumpDailyStat(userId, today, { aiTasks: 1, points: reward });
 
   // Ошибка в задании — сигнал, что задействованные слова стоит повторить раньше.
   if (!isCorrect && task.usedWordIds) {
@@ -407,8 +407,14 @@ export async function submitTask(userId: string, taskId: string, answer: string)
     better,
     praise,
     reference,
-    reward,
-    balance: { coins: balance.balance, xp: balance.xp, level: balance.level, leveledUp: balance.leveledUp },
+    reward: { points: reward },
+    rating: {
+      points: award.total,
+      level: award.level,
+      leveledUp: award.leveledUp,
+      freezesGranted: award.freezesGranted,
+      progress: levelProgress(award.total),
+    },
     achievements: await grantAchievements(userId),
   };
 }
@@ -450,7 +456,7 @@ export interface ChatTurnResult {
   reply: string;
   correction: string | null;
   tip: string | null;
-  reward: { coins: number; xp: number };
+  reward: { points: number };
 }
 
 /** Один ход диалога: ответ репетитора плюс разбор реплики студента. */
@@ -499,16 +505,15 @@ export async function chatTurn(userId: string, sessionId: string, message: strin
   await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
 
   // Разговорная практика тоже приносит награду — иначе ей не будут пользоваться.
-  const reward = { coins: 3, xp: 8 };
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { timezoneOffset: true } });
   await registerDailyActivity(userId);
-  await applyBalance(userId, { ...reward, reason: 'ai:chat', meta: { sessionId } });
-  await bumpDailyStat(userId, todayKey(user.timezoneOffset), { coins: reward.coins, xp: reward.xp });
+  await awardPoints(userId, { points: CHAT_TURN_REWARD, reason: 'ai:chat', meta: { sessionId } });
+  await bumpDailyStat(userId, todayKey(user.timezoneOffset), { points: CHAT_TURN_REWARD });
 
   return {
     reply: result.reply,
     correction: result.corrected && result.correction ? result.correction : null,
     tip: result.tip || null,
-    reward,
+    reward: { points: CHAT_TURN_REWARD },
   };
 }

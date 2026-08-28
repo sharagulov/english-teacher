@@ -24,21 +24,22 @@ import {
   formatDuration,
   formatNumber,
   formatPercent,
+  formatPoints,
   formatRelative,
   formatResponseTime,
   plural,
   transactionLabel,
 } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
-import type { CefrLevel, WordStatus } from '../lib/types';
+import type { CefrLevel, WordStatsSort, WordStatus } from '../lib/types';
 
-type Tab = 'overview' | 'words' | 'activity' | 'economy' | 'achievements';
+type Tab = 'overview' | 'words' | 'activity' | 'rating' | 'achievements';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Итоги' },
   { id: 'words', label: 'Слова' },
   { id: 'activity', label: 'Активность' },
-  { id: 'economy', label: 'Экономика' },
+  { id: 'rating', label: 'Рейтинг' },
   { id: 'achievements', label: 'Достижения' },
 ];
 
@@ -49,7 +50,7 @@ export function Stats() {
     <div>
       <PageHeader title="Статистика" description="Всё, что можно измерить в ваших занятиях." />
 
-      <div className="border-line mb-6 flex gap-1 overflow-x-auto border-b">
+      <div className="border-line mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b">
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -68,7 +69,7 @@ export function Stats() {
       {tab === 'overview' ? <OverviewTab /> : null}
       {tab === 'words' ? <WordsTab /> : null}
       {tab === 'activity' ? <ActivityTab /> : null}
-      {tab === 'economy' ? <EconomyTab /> : null}
+      {tab === 'rating' ? <RatingTab /> : null}
       {tab === 'achievements' ? <AchievementsTab /> : null}
     </div>
   );
@@ -84,11 +85,19 @@ function OverviewTab() {
   if (overview.error) return <ErrorNote message={overview.error} onRetry={overview.reload} />;
   if (!overview.data) return null;
 
-  const { words, answers, today, review, pools, ai, economy, user } = overview.data;
+  const { words, answers, today, review, pools, ai, rating, user } = overview.data;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <Stat
+            label="Рейтинг"
+            value={formatNumber(rating.points)}
+            hint={rating.progress.isMax ? `уровень ${rating.level} — максимум` : `уровень ${rating.level} из 1000`}
+            tone="accent"
+          />
+        </Card>
         <Card>
           <Stat label="Всего ответов" value={formatNumber(answers.attempts)} hint={`точность ${formatPercent(answers.accuracy, 1)}`} />
         </Card>
@@ -135,7 +144,7 @@ function OverviewTab() {
               <Field label="Ответов" value={formatNumber(today.attempts)} />
               <Field label="Новых слов" value={formatNumber(today.newWords)} />
               <Field label="Время" value={formatDuration(today.timeMs)} />
-              <Field label="Монет" value={`+${formatNumber(today.coins)}`} />
+              <Field label="Очков" value={`+${formatNumber(today.points)}`} />
             </div>
           </div>
         </Card>
@@ -233,8 +242,11 @@ function OverviewTab() {
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
           <Stat label="Завершено" value={formatNumber(pools.completed)} />
           <Stat label="Без ошибок" value={formatNumber(pools.perfect)} tone="success" />
-          <Stat label="Заработано монет" value={formatNumber(economy.earned)} />
-          <Stat label="Потрачено" value={formatNumber(economy.spent)} />
+          <Stat label="Очков всего" value={formatNumber(rating.points)} />
+          <Stat
+            label="До уровня выше"
+            value={rating.progress.isMax ? '—' : formatNumber(rating.progress.pointsToNext)}
+          />
         </div>
       </Card>
     </div>
@@ -246,18 +258,21 @@ function OverviewTab() {
 const STATUSES: WordStatus[] = ['new', 'learning', 'review', 'mastered', 'leech'];
 const LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-const SORTS: { value: string; label: string }[] = [
-  { value: 'dueAt', label: 'по сроку повторения' },
-  { value: 'timesWrong', label: 'по числу ошибок' },
+const SORTS: { value: WordStatsSort; label: string }[] = [
+  { value: 'errors', label: 'по числу ошибок' },
+  { value: 'accuracy', label: 'по точности' },
   { value: 'strength', label: 'по силе' },
-  { value: 'lastSeenAt', label: 'по последнему показу' },
-  { value: 'timesSeen', label: 'по числу показов' },
+  { value: 'due', label: 'по сроку повторения' },
+  { value: 'recent', label: 'по последнему показу' },
+  { value: 'seen', label: 'по числу показов' },
+  { value: 'slowest', label: 'по времени ответа' },
+  { value: 'alphabet', label: 'по алфавиту' },
 ];
 
 function WordsTab() {
   const [status, setStatus] = useState('');
   const [level, setLevel] = useState<CefrLevel | ''>('');
-  const [sort, setSort] = useState('timesWrong');
+  const [sort, setSort] = useState<WordStatsSort>('errors');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const [favorite, setFavorite] = useState(false);
   const [search, setSearch] = useState('');
@@ -310,7 +325,7 @@ function WordsTab() {
               </option>
             ))}
           </Select>
-          <Select label="Сортировка" value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }}>
+          <Select label="Сортировка" value={sort} onChange={(event) => { setSort(event.target.value as WordStatsSort); setPage(1); }}>
             {SORTS.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -502,7 +517,7 @@ function ActivityTab() {
                   <th className="px-3 py-2.5 font-medium">№</th>
                   <th className="px-3 py-2.5 text-right font-medium">Слов</th>
                   <th className="px-3 py-2.5 text-right font-medium">Ошибок</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Монет</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Очков</th>
                   <th className="px-3 py-2.5 text-right font-medium">Время</th>
                   <th className="px-5 py-2.5 text-right font-medium">Когда</th>
                 </tr>
@@ -516,7 +531,7 @@ function ActivityTab() {
                     <td className={cx('px-3 py-2.5 text-right tabular-nums', pool.wrongCount > 0 ? 'text-danger' : 'text-success')}>
                       {pool.wrongCount}
                     </td>
-                    <td className="text-soft px-3 py-2.5 text-right tabular-nums">+{pool.coinsEarned}</td>
+                    <td className="text-soft px-3 py-2.5 text-right tabular-nums">+{pool.pointsEarned}</td>
                     <td className="text-soft px-3 py-2.5 text-right tabular-nums">{formatDuration(pool.durationMs)}</td>
                     <td className="text-faint px-5 py-2.5 text-right whitespace-nowrap">
                       {pool.completedAt ? formatRelative(pool.completedAt) : 'не закрыт'}
@@ -532,44 +547,93 @@ function ActivityTab() {
   );
 }
 
-// ─────────────────────────────── Экономика ───────────────────────────────
+// ─────────────────────────────── Рейтинг ───────────────────────────────
 
-function EconomyTab() {
+function RatingTab() {
+  const overview = useAsync(() => api.stats.overview(), []);
+  const daily = useAsync(() => api.stats.daily(30), []);
   const transactions = useAsync(() => api.stats.transactions(60), []);
 
+  const rating = overview.data?.rating;
+  const series = daily.data?.series ?? [];
+
   return (
-    <Card padded={false}>
-      <div className="px-5 pt-5">
-        <SectionTitle title="История операций" description="Каждое начисление и списание монет" />
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+        <Card>
+          <SectionTitle title="Уровень" />
+          {rating ? (
+            <>
+              <div className="flex items-center gap-5">
+                <Ring value={rating.progress.progress} size={84}>
+                  <span className="text-[17px] font-semibold tabular-nums">{rating.level}</span>
+                </Ring>
+                <div className="space-y-2.5">
+                  <Field label="Очков" value={formatNumber(rating.points)} />
+                  <Field
+                    label="В уровне"
+                    value={
+                      rating.progress.isMax
+                        ? 'максимум'
+                        : `${formatNumber(rating.progress.pointsIntoLevel)} / ${formatNumber(rating.progress.pointsForLevel)}`
+                    }
+                  />
+                  <Field
+                    label="До следующего"
+                    value={rating.progress.isMax ? '—' : formatNumber(rating.progress.pointsToNext)}
+                  />
+                </div>
+              </div>
+              <p className="text-faint mt-5 text-[12px] leading-relaxed">
+                Очки только накапливаются: рейтинг — это суммарный вложенный труд. Максимум — 1000 уровень.
+              </p>
+            </>
+          ) : (
+            <Loading label="" />
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Очки по дням" description="Сколько рейтинга приносил каждый день" />
+          {daily.loading && !daily.data ? (
+            <Loading label="" />
+          ) : (
+            <AreaChart
+              tone="accent"
+              points={series.map((point) => ({ label: formatDayKey(point.day), value: point.points }))}
+              formatValue={(value) => `${Math.round(value)} очков`}
+            />
+          )}
+        </Card>
       </div>
 
-      {transactions.loading && !transactions.data ? (
-        <Loading label="" />
-      ) : (transactions.data?.items.length ?? 0) === 0 ? (
-        <EmptyState title="Операций пока нет" />
-      ) : (
-        <ul>
-          {transactions.data?.items.map((item) => (
-            <li key={item.id} className="border-line/60 flex items-center gap-4 border-b px-5 py-3 last:border-0">
-              <span
-                className={cx(
-                  'w-16 shrink-0 text-[14px] font-semibold tabular-nums',
-                  item.amount >= 0 ? 'text-success' : 'text-danger',
-                )}
-              >
-                {item.amount >= 0 ? '+' : ''}
-                {item.amount}
-              </span>
-              <span className="text-ink min-w-0 flex-1 text-[13px]">{transactionLabel(item.reason)}</span>
-              <span className="text-faint shrink-0 text-[12px] tabular-nums">
-                баланс {formatNumber(item.balanceAfter)}
-              </span>
-              <span className="text-faint hidden shrink-0 text-[12px] sm:inline">{formatDateTime(item.createdAt)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+      <Card padded={false}>
+        <div className="px-5 pt-5">
+          <SectionTitle title="История начислений" description="Откуда пришли очки рейтинга" />
+        </div>
+
+        {transactions.loading && !transactions.data ? (
+          <Loading label="" />
+        ) : (transactions.data?.items.length ?? 0) === 0 ? (
+          <EmptyState title="Начислений пока нет" />
+        ) : (
+          <ul>
+            {transactions.data?.items.map((item) => (
+              <li key={item.id} className="border-line/60 flex items-center gap-4 border-b px-5 py-3 last:border-0">
+                <span className="text-success w-16 shrink-0 text-[14px] font-semibold tabular-nums">
+                  +{item.amount}
+                </span>
+                <span className="text-ink min-w-0 flex-1 text-[13px]">{transactionLabel(item.reason)}</span>
+                <span className="text-faint shrink-0 text-[12px] tabular-nums">
+                  рейтинг {formatNumber(item.balanceAfter)}
+                </span>
+                <span className="text-faint hidden shrink-0 text-[12px] sm:inline">{formatDateTime(item.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -601,7 +665,7 @@ function AchievementsTab() {
               </div>
               <p className="text-soft mt-1.5 text-[13px] leading-relaxed">{item.description}</p>
               <p className="text-faint mt-2.5 text-[12px] tabular-nums">
-                +{item.coins} монет · +{item.xp} опыта
+                +{formatPoints(item.points)}
                 {item.unlockedAt ? ` · ${formatRelative(item.unlockedAt)}` : ''}
               </p>
             </Card>

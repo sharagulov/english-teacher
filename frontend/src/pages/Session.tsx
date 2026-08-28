@@ -10,6 +10,8 @@ import {
   formatNumber,
   formatPercent,
   plural,
+  pointsWord,
+  splitAroundWord,
 } from '../lib/format';
 import { speak, speechSupported, stopSpeaking } from '../lib/speech';
 import type { AnswerResult, HintKind, PoolState, Question } from '../lib/types';
@@ -114,11 +116,18 @@ export function Session() {
         setPending(response.state);
         setResult(response.result);
 
-        const { balance } = response.result;
-        patchUser({ coins: balance.coins, xp: balance.xp, level: balance.level });
+        const { rating } = response.result;
+        patchUser({ points: rating.points, level: rating.level, progress: rating.progress });
 
-        if (balance.leveledUp) {
-          notify({ title: `Уровень ${balance.level}`, description: 'Открылись новые режимы', tone: 'reward' });
+        if (rating.leveledUp) {
+          notify({
+            title: `Уровень ${rating.level}`,
+            description:
+              rating.freezesGranted > 0
+                ? `Выдана заморозка серии: ${rating.freezesGranted}`
+                : 'Посмотрите, что открылось в разделе «Награды»',
+            tone: 'reward',
+          });
         }
         for (const achievement of response.result.achievements) {
           notify({ title: achievement.title, description: achievement.description, tone: 'reward' });
@@ -141,7 +150,7 @@ export function Session() {
     [poolId, question, sending, hints.length, patchUser, notify],
   );
 
-  const buyHint = useCallback(
+  const takeHint = useCallback(
     async (kind: HintKind) => {
       if (!poolId || !question || hintPending) return;
       if (hints.some((hint) => hint.kind === kind)) return;
@@ -152,14 +161,13 @@ export function Session() {
           ...current,
           { kind, label: HINT_ORDER.find((item) => item.kind === kind)?.label ?? kind, value: response.value },
         ]);
-        patchUser({ coins: response.balance });
       } catch (cause) {
         notify({ title: cause instanceof ApiError ? cause.message : 'Подсказка недоступна', tone: 'danger' });
       } finally {
         setHintPending(false);
       }
     },
-    [poolId, question, hints, hintPending, patchUser, notify],
+    [poolId, question, hints, hintPending, notify],
   );
 
   // ─── Клавиатура ───
@@ -173,10 +181,13 @@ export function Session() {
       if (event.ctrlKey && event.key.toLowerCase() === 'h') {
         event.preventDefault();
         const next = HINT_ORDER.find((item) => !hints.some((hint) => hint.kind === item.kind));
-        if (next && phase === 'question') void buyHint(next.kind);
+        if (next && phase === 'question') void takeHint(next.kind);
         return;
       }
-      if (phase === 'feedback' && (event.key === 'Enter' || event.key === ' ')) {
+      if (phase === 'feedback') {
+        // Разбор держим на экране, пока пользователь сам не нажмёт клавишу.
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(event.key)) return;
         event.preventDefault();
         advance();
         return;
@@ -191,14 +202,7 @@ export function Session() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [phase, question, hints, result, advance, submit, buyHint]);
-
-  // Автопереход после верного ответа, если включён в настройках.
-  useEffect(() => {
-    if (!result || !result.isCorrect || result.poolCompleted || user?.autoAdvance !== true) return;
-    const timer = setTimeout(advance, 850);
-    return () => clearTimeout(timer);
-  }, [result, user?.autoAdvance, advance]);
+  }, [phase, question, hints, result, advance, submit, takeHint]);
 
   if (loadError) {
     return (
@@ -245,8 +249,8 @@ export function Session() {
           <span className="text-soft text-[13px] font-medium tabular-nums">
             {solved}/{total}
           </span>
-          <span className="text-faint hidden text-[13px] tabular-nums sm:inline" title="Монеты">
-            {formatNumber(user?.coins ?? 0)}
+          <span className="text-faint hidden text-[13px] tabular-nums sm:inline" title="Очки рейтинга">
+            {formatNumber(user?.points ?? 0)}
           </span>
         </div>
       </header>
@@ -276,7 +280,7 @@ export function Session() {
             inputRef={inputRef}
             hints={hints}
             hintPending={hintPending}
-            onHint={(kind) => void buyHint(kind)}
+            onHint={(kind) => void takeHint(kind)}
           />
         ) : result ? (
           <Feedback result={result} onNext={advance} />
@@ -455,7 +459,7 @@ function QuestionForm({
           </ul>
         ) : (
           <p className="text-faint mt-2 text-[12px]">
-            Подсказка стоит монет и уменьшает награду. <Kbd>Ctrl</Kbd> + <Kbd>H</Kbd>
+            Подсказка снижает награду за это слово. <Kbd>Ctrl</Kbd> + <Kbd>H</Kbd>
           </p>
         )}
       </div>
@@ -496,10 +500,15 @@ function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void
             {result.word.gloss ? <p className="text-faint mt-2 text-[13px] italic">{result.word.gloss}</p> : null}
           </div>
 
-          {result.reward.coins > 0 || result.reward.xp > 0 ? (
+          {result.reward.points > 0 ? (
             <div className="text-right">
-              <p className="text-ink text-[22px] font-semibold tabular-nums">+{result.reward.coins}</p>
-              <p className="text-faint text-[12px]">+{result.reward.xp} опыта</p>
+              <p className="text-ink text-[22px] font-semibold tabular-nums">+{result.reward.points}</p>
+              <p className="text-faint text-[12px]">{pointsWord(result.reward.points)} рейтинга</p>
+              <p className="text-faint mt-1 text-[12px] tabular-nums">
+                {result.rating.progress.isMax
+                  ? `ур. ${result.rating.level} · максимум`
+                  : `ур. ${result.rating.level} · ${formatNumber(result.rating.progress.pointsToNext)} до следующего`}
+              </p>
             </div>
           ) : null}
         </div>
@@ -519,32 +528,123 @@ function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void
         ) : null}
       </div>
 
-      {result.word.senses.length > 0 ? (
-        <Card className="mt-4">
-          <p className="text-faint mb-2.5 text-[12px] font-medium tracking-wide uppercase">Значения</p>
-          <ul className="space-y-2">
-            {result.word.senses.slice(0, 4).map((sense) => (
-              <li key={sense.sense} className="text-[13px]">
-                <span className="text-soft italic">{sense.sense}</span>
-                <span className="text-ink"> — {sense.translations.join(', ')}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
+      <Examples word={result.word} />
 
       <div className="mt-6 flex items-center gap-4">
         <Button variant="primary" size="lg" onClick={onNext} autoFocus>
           Дальше
         </Button>
         <span className="text-faint text-[12px]">
-          <Kbd>Enter</Kbd> — продолжить
+          <Kbd>Enter</Kbd> или любая клавиша — продолжить
         </span>
         <span className="text-faint ml-auto text-[12px]">
           сила слова {formatPercent(result.wordProgress.strength)}
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Примеры употребления слова. Обычно они приходят вместе с разбором ответа,
+ * потому что готовятся фоном ещё при сборке пулла; если до слова очередь не
+ * дошла, дозапрашиваем их отдельно. Когда примеров нет вовсе, показываем
+ * старый разбор по значениям — пустой карточке тут не место.
+ */
+function Examples({ word }: { word: AnswerResult['word'] }) {
+  const [examples, setExamples] = useState(word.examples);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setExamples(word.examples);
+    if (word.examples.length > 0) return;
+
+    let alive = true;
+    setLoading(true);
+    api.words
+      .examples(word.id)
+      .then((response) => {
+        if (alive) setExamples(response.examples);
+      })
+      .catch(() => {
+        // Примеров не нашлось — ниже покажутся значения слова.
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [word.id, word.examples]);
+
+  if (examples.length === 0) {
+    if (loading) {
+      return (
+        <Card className="mt-4">
+          <p className="text-faint text-[12px] font-medium tracking-wide uppercase">Примеры</p>
+          <p className="text-faint mt-2.5 text-[13px]">Подбираем примеры…</p>
+        </Card>
+      );
+    }
+    return <Senses senses={word.senses} />;
+  }
+
+  return (
+    <Card className="mt-4">
+      <p className="text-faint mb-3 text-[12px] font-medium tracking-wide uppercase">Примеры</p>
+      <ul className="space-y-3.5">
+        {examples.map((example) => (
+          <li key={example.text}>
+            <div className="flex items-start gap-2.5">
+              <p className="text-soft flex-1 text-[14px] leading-snug">
+                {splitAroundWord(example.text, word.text).map((part, index) =>
+                  part.match ? (
+                    <span key={index} className="text-ink font-semibold">
+                      {part.text}
+                    </span>
+                  ) : (
+                    <span key={index}>{part.text}</span>
+                  ),
+                )}
+              </p>
+              {speechSupported() ? (
+                <button
+                  type="button"
+                  onClick={() => speak(example.text)}
+                  className="text-faint hover:text-ink mt-0.5 shrink-0 transition-colors"
+                  aria-label="Прослушать пример"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 9v6h3l5 4V5L7 9H4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                    <path d="M16 8.5a5 5 0 0 1 0 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+            {example.translation ? <p className="text-faint mt-1 text-[13px]">{example.translation}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function Senses({ senses }: { senses: AnswerResult['word']['senses'] }) {
+  if (senses.length === 0) return null;
+
+  return (
+    <Card className="mt-4">
+      <p className="text-faint mb-2.5 text-[12px] font-medium tracking-wide uppercase">Значения</p>
+      <ul className="space-y-2">
+        {senses.slice(0, 4).map((sense) => (
+          <li key={sense.sense} className="text-[13px]">
+            <span className="text-soft italic">{sense.sense}</span>
+            <span className="text-ink"> — {sense.translations.join(', ')}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -576,8 +676,7 @@ function Summary({ state, summary }: { state: PoolState; summary: AnswerResult['
           <Stat label="Точность" value={formatPercent(accuracy, 0)} tone={pool.wrongCount === 0 ? 'success' : undefined} />
           <Stat label="Ошибок" value={formatNumber(summary?.wrong ?? pool.wrongCount)} tone={pool.wrongCount > 0 ? 'danger' : undefined} />
           <Stat label="Время" value={summary ? formatDuration(summary.durationMs) : '—'} />
-          <Stat label="Монеты" value={`+${formatNumber(summary?.coins ?? pool.coinsEarned)}`} tone="accent" />
-          <Stat label="Опыт" value={`+${formatNumber(summary?.xp ?? pool.xpEarned)}`} />
+          <Stat label="Очки рейтинга" value={`+${formatNumber(summary?.points ?? pool.pointsEarned)}`} tone="accent" />
         </div>
       </Card>
 

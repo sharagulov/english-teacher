@@ -14,9 +14,10 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:import": "tsx src/tools/import-dictionary.ts",
+    "db:examples": "tsx src/tools/import-examples.ts",
     "db:studio": "prisma studio",
-    "db:setup": "prisma generate && prisma db push && tsx src/tools/import-dictionary.ts",
-    "db:reset": "prisma db push --force-reset && tsx src/tools/import-dictionary.ts"
+    "db:setup": "prisma generate && prisma db push && tsx src/tools/import-dictionary.ts && tsx src/tools/import-examples.ts",
+    "db:reset": "prisma db push --force-reset && tsx src/tools/import-dictionary.ts && tsx src/tools/import-examples.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

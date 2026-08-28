@@ -18,10 +18,8 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
-        coins: true,
-        xp: true,
+        points: true,
         level: true,
-        totalDelta: true,
         dailyStreak: true,
         longestStreak: true,
         dailyGoalWords: true,
@@ -34,7 +32,7 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
     const today = todayKey(user.timezoneOffset);
     const now = new Date();
 
-    const [byStatus, attemptsAgg, correctCount, pools, perfectPools, todayStat, dueNow, dueTomorrow, dueWeek, aiCount, spent, bestStreak, totalWords] =
+    const [byStatus, attemptsAgg, correctCount, pools, perfectPools, todayStat, dueNow, dueTomorrow, dueWeek, aiCount, bestStreak, totalWords] =
       await Promise.all([
         prisma.userWord.groupBy({ by: ['status'], where: { userId }, _count: true }),
         prisma.attempt.aggregate({ where: { userId }, _count: true, _avg: { responseMs: true }, _sum: { responseMs: true } }),
@@ -50,7 +48,6 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
           where: { userId, isIgnored: false, dueAt: { gt: now, lte: new Date(now.getTime() + 7 * 86_400_000) } },
         }),
         prisma.aiSubmission.count({ where: { userId } }),
-        prisma.transaction.aggregate({ where: { userId, amount: { lt: 0 } }, _sum: { amount: true } }),
         prisma.userWord.aggregate({ where: { userId }, _max: { bestStreak: true } }),
         prisma.word.count({ where: { ownerId: null, isFunctionWord: false } }),
       ]);
@@ -60,7 +57,7 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
     const attempts = attemptsAgg._count;
 
     return {
-      user: { ...user, progress: levelProgress(user.xp) },
+      user: { ...user, progress: levelProgress(user.points) },
       words: {
         encountered,
         learning: statusCount('learning'),
@@ -86,15 +83,14 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
         correct: todayStat?.correct ?? 0,
         attempts: todayStat?.attempts ?? 0,
         newWords: todayStat?.newWords ?? 0,
-        coins: todayStat?.coins ?? 0,
-        xp: todayStat?.xp ?? 0,
+        points: todayStat?.points ?? 0,
         timeMs: todayStat?.timeMs ?? 0,
         goal: user.dailyGoalWords,
         goalProgress: Math.min((todayStat?.correct ?? 0) / user.dailyGoalWords, 1),
       },
       review: { dueNow, dueTomorrow, dueWeek },
       ai: { submissions: aiCount },
-      economy: { earned: user.totalDelta, spent: Math.abs(spent._sum.amount ?? 0), balance: user.coins },
+      rating: { points: user.points, level: user.level, progress: levelProgress(user.points) },
     };
   });
 
@@ -125,8 +121,7 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
           newWords: row?.newWords ?? 0,
           learned: row?.learned ?? 0,
           mastered: row?.mastered ?? 0,
-          coins: row?.coins ?? 0,
-          xp: row?.xp ?? 0,
+          points: row?.points ?? 0,
           timeMs: row?.timeMs ?? 0,
           aiTasks: row?.aiTasks ?? 0,
           poolsDone: row?.poolsDone ?? 0,
@@ -338,13 +333,13 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
         matchType: a.matchType,
         responseMs: a.responseMs,
         hintsUsed: a.hintsUsed,
-        coins: a.coins,
+        points: a.points,
         word: { text: a.word.text, level: a.word.level, translations: parseStringArray(a.word.translations) },
       })),
     };
   });
 
-  /** История начислений и трат. */
+  /** История начислений очков рейтинга. */
   app.get('/transactions', async (request) => {
     const query = z.object({ limit: z.coerce.number().int().min(10).max(200).default(50) }).parse(request.query);
     const items = await prisma.transaction.findMany({
@@ -374,8 +369,7 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
         status: true,
         correctCount: true,
         wrongCount: true,
-        coinsEarned: true,
-        xpEarned: true,
+        pointsEarned: true,
         durationMs: true,
         createdAt: true,
         completedAt: true,

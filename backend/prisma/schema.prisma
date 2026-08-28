@@ -20,11 +20,9 @@ model User {
   passwordHash String
   name         String
 
-  // Экономика и прогресс
-  coins      Int @default(50)
-  totalDelta Int @default(50) // сколько монет заработано за всё время
-  xp         Int @default(0)
-  level      Int @default(1)
+  // Прогресс: очки рейтинга только накапливаются и задают уровень (1..1000)
+  points Int @default(50)
+  level  Int @default(1)
 
   // Ежедневная серия
   dailyStreak     Int     @default(0)
@@ -51,7 +49,6 @@ model User {
   transactions  Transaction[]
   achievements  UserAchievement[]
   dailyStats    DailyStat[]
-  inventory     InventoryItem[]
   aiTasks       AiTask[]
   aiSubmissions AiSubmission[]
   chatSessions  ChatSession[]
@@ -83,6 +80,7 @@ model Word {
   pack           String? // название набора, если слово пришло из пака
   isFunctionWord Boolean   @default(false) // артикли, предлоги и пр. — не для перевода
   enrichedAt     DateTime? // когда подтянуты транскрипция/пример
+  examplesAt     DateTime? // когда слово прогонялось по корпусу примеров (даже если ничего не нашлось)
 
   // Приватные слова пользователя (общие слова словаря — ownerId = null)
   ownerId String?
@@ -94,6 +92,7 @@ model Word {
   userWords UserWord[]
   poolItems PoolItem[]
   attempts  Attempt[]
+  examples  WordExample[]
 
   @@unique([text, ownerId])
   @@index([level])
@@ -102,6 +101,28 @@ model Word {
   @@index([ownerId])
   @@index([pack])
   @@index([isFunctionWord, level])
+  @@index([examplesAt])
+}
+
+// ──────────────────────── Примеры употребления слова ────────────────────────
+
+model WordExample {
+  id     Int  @id @default(autoincrement())
+  wordId Int
+  word   Word @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  text        String // короткая фраза на английском с этим словом
+  translation String? // перевод на русский, если он есть в источнике
+  source      String  @default("tatoeba") // tatoeba | dictionary | ai
+  sourceRef   String? // ссылка на исходную фразу — для атрибуции
+  position    Int     @default(0) // порядок показа: сначала самые удачные
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Один и тот же текст у слова не дублируем: примеры доливаются из разных источников.
+  @@unique([wordId, text])
+  @@index([wordId, position])
 }
 
 // ─────────────────────── Прогресс пользователя по слову ───────────────────────
@@ -165,8 +186,7 @@ model Pool {
 
   correctCount Int @default(0)
   wrongCount   Int @default(0)
-  coinsEarned  Int @default(0)
-  xpEarned     Int @default(0)
+  pointsEarned Int @default(0)
   durationMs   Int @default(0)
 
   createdAt   DateTime  @default(now())
@@ -215,8 +235,7 @@ model Attempt {
   matchType String // exact | alternative | typo | wrong | skipped
   responseMs Int    @default(0)
   hintsUsed  Int    @default(0)
-  coins      Int    @default(0)
-  xp         Int    @default(0)
+  points     Int    @default(0)
 
   createdAt DateTime @default(now())
 
@@ -225,15 +244,17 @@ model Attempt {
   @@index([poolId])
 }
 
-// ───────────────────────────── Экономика ─────────────────────────────
+// ───────────────────────────── Рейтинг ─────────────────────────────
 
+// История начислений очков: рейтинг только растёт, поэтому amount всегда > 0,
+// а balanceAfter — это рейтинг после начисления.
 model Transaction {
   id     Int    @id @default(autoincrement())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  amount       Int // положительное — начисление, отрицательное — трата
-  reason       String // correct_answer | pool_complete | daily_streak | purchase:hint | ...
+  amount       Int
+  reason       String // correct_answer | pool_complete | daily_streak | achievement:... | ai:... | ...
   meta         String? // JSON с деталями
   balanceAfter Int
 
@@ -241,20 +262,6 @@ model Transaction {
 
   @@index([userId, createdAt])
   @@index([userId, reason])
-}
-
-model InventoryItem {
-  id     Int    @id @default(autoincrement())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  itemCode String // hint_letter | hint_choices | skip | freeze | ai_pack | theme_sepia
-  quantity Int    @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, itemCode])
 }
 
 model UserAchievement {
@@ -285,8 +292,7 @@ model DailyStat {
   newWords   Int @default(0)
   learned    Int @default(0) // перешло в review
   mastered   Int @default(0)
-  coins      Int @default(0)
-  xp         Int @default(0)
+  points     Int @default(0)
   timeMs     Int @default(0)
   aiTasks    Int @default(0)
   poolsDone  Int @default(0)
@@ -328,8 +334,7 @@ model AiSubmission {
   score     Int // 0..100
   isCorrect Boolean
   feedback  String // JSON: { verdict, errors[], better, explanation }
-  coins     Int    @default(0)
-  xp        Int    @default(0)
+  points    Int    @default(0)
 
   createdAt DateTime @default(now())
 

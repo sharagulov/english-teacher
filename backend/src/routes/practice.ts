@@ -1,9 +1,16 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { MODE_LABELS, MODE_UNLOCK_LEVEL, PRACTICE_MODES, HINT_COSTS, HINT_LABELS } from '../lib/economy.js';
+import {
+  HINT_KINDS,
+  HINT_LABELS,
+  HINT_REWARD_FACTOR,
+  MODE_LABELS,
+  MODE_UNLOCK_LEVEL,
+  PRACTICE_MODES,
+} from '../lib/economy.js';
 import { CEFR_LEVELS, levelsUpTo } from '../lib/levels.js';
-import { abandonPool, buyHint, countAvailable, createPool, getActivePool, getPoolState, submitAnswer } from '../services/practice.js';
+import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, takeHint } from '../services/practice.js';
 
 const poolBody = z.object({
   mode: z.enum(PRACTICE_MODES as [string, ...string[]]).default('classic'),
@@ -56,10 +63,10 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
         unlocked: user.level >= MODE_UNLOCK_LEVEL[mode],
       })),
       topics: topics.map((t) => ({ topic: t.topic as string, count: t._count })),
-      hints: (Object.keys(HINT_COSTS) as (keyof typeof HINT_COSTS)[]).map((kind) => ({
+      hints: HINT_KINDS.map((kind) => ({
         kind,
         label: HINT_LABELS[kind],
-        cost: HINT_COSTS[kind],
+        penalty: 1 - HINT_REWARD_FACTOR,
       })),
     };
   });
@@ -121,7 +128,7 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'Некорректная подсказка' });
     }
-    return buyHint(request.userId, id, parsed.data.wordId, parsed.data.kind);
+    return takeHint(request.userId, id, parsed.data.wordId, parsed.data.kind);
   });
 
   app.post('/pools/:id/abandon', async (request) => {

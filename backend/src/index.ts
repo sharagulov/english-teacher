@@ -11,10 +11,11 @@ import authPlugin from './plugins/auth.js';
 import aiRoutes from './routes/ai.js';
 import authRoutes from './routes/auth.js';
 import practiceRoutes from './routes/practice.js';
-import shopRoutes from './routes/shop.js';
+import rewardRoutes from './routes/rewards.js';
 import statsRoutes from './routes/stats.js';
 import wordRoutes from './routes/words.js';
 import { ATTRIBUTION } from './lib/sources.js';
+import { warmupExamples } from './services/examples.js';
 
 const app = Fastify({
   logger: env.isProd
@@ -33,7 +34,7 @@ const app = Fastify({
 
 /**
  * Ошибки сервисов бросаются с полем statusCode — так бизнес-правила
- * («не хватает монет», «пулл закрыт») доходят до клиента понятным текстом.
+ * («режим ещё не открыт», «пулл закрыт») доходят до клиента понятным текстом.
  */
 app.setErrorHandler((rawError, request, reply) => {
   const error = rawError as Error & { statusCode?: number; code?: string };
@@ -53,7 +54,7 @@ app.setErrorHandler((rawError, request, reply) => {
   }
 
   /*
-   * Сервисы помечают ожидаемые отказы полем statusCode («не хватает монет»,
+   * Сервисы помечают ожидаемые отказы полем statusCode («пулл закрыт»,
    * «нет ключа OpenAI»). Такие сообщения безопасно показать пользователю,
    * в том числе с кодом 5xx. Ошибка без statusCode — это настоящий сбой,
    * её текст наружу не отдаём.
@@ -113,7 +114,7 @@ await app.register(authRoutes, { prefix: '/api/auth' });
 await app.register(practiceRoutes, { prefix: '/api/practice' });
 await app.register(wordRoutes, { prefix: '/api/words' });
 await app.register(statsRoutes, { prefix: '/api/stats' });
-await app.register(shopRoutes, { prefix: '/api/shop' });
+await app.register(rewardRoutes, { prefix: '/api/rewards' });
 await app.register(aiRoutes, { prefix: '/api/ai' });
 
 const shutdown = async (signal: string) => {
@@ -135,6 +136,9 @@ try {
 
   await app.listen({ port: env.PORT, host: env.HOST });
   app.log.info(`Словарь: ${wordCount} слов. ИИ-функции: ${env.aiEnabled ? 'включены' : 'выключены (нет OPENAI_API_KEY)'}`);
+
+  // Примеры употребления подбираются фоном и не задерживают запуск.
+  warmupExamples((message) => app.log.info(message));
 } catch (error) {
   app.log.error(error);
   process.exit(1);

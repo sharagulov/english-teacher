@@ -1,5 +1,11 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+// .env всегда берём из папки backend, даже если процесс запущен из корня монорепо.
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+loadEnv({ path: path.join(backendRoot, '.env') });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

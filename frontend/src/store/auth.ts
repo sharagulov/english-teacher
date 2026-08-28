@@ -67,7 +67,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       const { user } = await api.auth.me();
       set({ user });
     } catch {
-      // молча: обновление баланса не критично для работы интерфейса
+      // молча: обновление рейтинга не критично для работы интерфейса
     }
   },
 

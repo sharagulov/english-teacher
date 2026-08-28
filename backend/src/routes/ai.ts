@@ -71,7 +71,7 @@ const aiRoutes: FastifyPluginAsync = async (app) => {
         isCorrect: s.isCorrect,
         answer: s.answer,
         feedback: JSON.parse(s.feedback),
-        coins: s.coins,
+        points: s.points,
         type: s.task.type,
         label: AI_TASK_LABELS[s.task.type as keyof typeof AI_TASK_LABELS] ?? s.task.type,
         level: s.task.level,

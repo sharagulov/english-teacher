@@ -52,10 +52,11 @@ export function Practice() {
 
   const [mode, setMode] = useState<PracticeMode>('classic');
   const [size, setSize] = useState(20);
-  const [levels, setLevels] = useState<CefrLevel[]>([]);
+  const [excludedLevels, setExcludedLevels] = useState<CefrLevel[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [levelError, setLevelError] = useState<string | null>(null);
 
   const data = overview.data;
 
@@ -72,9 +73,22 @@ export function Practice() {
 
   const activePool = data.activePool;
   const multiplier = data.availability.modeMultipliers[mode] ?? 1;
+  const hintPenalty = data.hints[0]?.penalty ?? 0;
 
   const toggle = <T,>(list: T[], value: T): T[] =>
     list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+
+  const includedLevels = data.levels.filter((level) => !excludedLevels.includes(level));
+
+  const toggleLevel = (level: CefrLevel) => {
+    const alreadyExcluded = excludedLevels.includes(level);
+    if (!alreadyExcluded && excludedLevels.length >= data.levels.length - 1) {
+      setLevelError('Оставьте хотя бы один уровень');
+      return;
+    }
+    setLevelError(null);
+    setExcludedLevels(toggle(excludedLevels, level));
+  };
 
   const start = async () => {
     setCreating(true);
@@ -83,7 +97,7 @@ export function Practice() {
       const state = await api.practice.createPool({
         mode,
         size,
-        ...(levels.length > 0 ? { levels } : {}),
+        ...(excludedLevels.length > 0 ? { levels: includedLevels } : {}),
         ...(topics.length > 0 ? { topics } : {}),
       });
       navigate(`/practice/session/${state.pool.id}`);
@@ -128,7 +142,7 @@ export function Practice() {
                 value={activePool.progress.solved / Math.max(1, activePool.progress.total)}
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex shrink-0 items-center gap-2 self-center">
               <Button variant="ghost" size="sm" onClick={drop}>
                 Отменить
               </Button>
@@ -200,13 +214,29 @@ export function Practice() {
               title="Отбор слов"
               description="Без фильтров слова подбираются по вашему уровню и приоритету повторения"
             />
-            <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Уровни</p>
-            <div className="mb-5 flex flex-wrap gap-2">
-              {data.levels.map((level) => (
-                <Chip key={level} active={levels.includes(level)} onClick={() => setLevels(toggle(levels, level))}>
-                  {level}
-                </Chip>
-              ))}
+            <p className="text-faint mb-1 text-[12px] font-medium tracking-wide uppercase">Уровни</p>
+            <p className="text-soft mb-2 text-[12px] leading-relaxed">
+              Нажмите, чтобы не показывать слова этого уровня. Зачёркнутый — исключён.
+            </p>
+            <div className="mb-5">
+              <div className="flex flex-wrap gap-2">
+                {data.levels.map((level) => {
+                  const excluded = excludedLevels.includes(level);
+                  return (
+                    <Chip
+                      key={level}
+                      excluded={excluded}
+                      ariaLabel={excluded ? `Вернуть уровень ${level}` : `Исключить уровень ${level}`}
+                      onClick={() => toggleLevel(level)}
+                    >
+                      {level}
+                    </Chip>
+                  );
+                })}
+              </div>
+              {levelError ? (
+                <p className="text-danger mt-2 text-[12px] leading-relaxed">{levelError}</p>
+              ) : null}
             </div>
 
             {data.topics.length > 0 ? (
@@ -241,8 +271,14 @@ export function Practice() {
             <div className="border-line mt-5 border-t pt-5">
               <p className="text-soft text-[13px]">
                 {MODE_LABELS[mode]}, {size} слов
-                {multiplier > 1 ? `, награда ×${multiplier}` : ''}
+                {multiplier > 1 ? `, очки ×${multiplier}` : ''}
+                {excludedLevels.length > 0 ? `, без ${excludedLevels.join(', ')}` : ''}
               </p>
+              {hintPenalty > 0 ? (
+                <p className="text-faint mt-2 text-[12px] leading-relaxed">
+                  Подсказки бесплатны, но каждая снижает награду за слово на {Math.round(hintPenalty * 100)}%.
+                </p>
+              ) : null}
               {available < size ? (
                 <p className="text-warning mt-2 text-[12px] leading-relaxed">
                   Подходящих слов: {available}. Пулл будет меньше запрошенного.
@@ -267,7 +303,7 @@ export function Practice() {
             <div className="border-line text-faint mt-5 space-y-1.5 border-t pt-5 text-[12px]">
               <p className="text-soft font-medium">Горячие клавиши в тренажёре</p>
               <p>
-                <Kbd>Enter</Kbd> — ответить и перейти дальше
+                <Kbd>Enter</Kbd> — ответить · любая клавиша — закрыть разбор
               </p>
               <p>
                 <Kbd>1</Kbd>–<Kbd>4</Kbd> — выбор варианта
@@ -287,21 +323,31 @@ export function Practice() {
 }
 
 function Chip({
-  active,
+  active = false,
+  excluded = false,
   onClick,
   children,
+  ariaLabel,
 }: {
-  active: boolean;
+  active?: boolean;
+  excluded?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={excluded || active}
+      aria-label={ariaLabel}
       className={cx(
         'rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors duration-150',
-        active ? 'border-ink bg-ink text-surface' : 'border-line bg-raised text-soft hover:border-line-strong',
+        excluded
+          ? 'border-line bg-sunken text-faint line-through decoration-faint hover:border-line-strong'
+          : active
+            ? 'border-ink bg-ink text-surface'
+            : 'border-line bg-raised text-soft hover:border-line-strong',
       )}
     >
       {children}

@@ -19,7 +19,7 @@ import { formatDate, formatNumber, plural } from '../lib/format';
 import type { CefrLevel } from '../lib/types';
 import { useAsync } from '../lib/useAsync';
 import { useAuth } from '../store/auth';
-import { useUi } from '../store/ui';
+import { THEME_UNLOCK_LEVEL, useUi } from '../store/ui';
 
 const LEVELS: { value: CefrLevel; label: string }[] = [
   { value: 'A1', label: 'A1 — начальный' },
@@ -42,7 +42,7 @@ export function Profile() {
   const unlockedThemes = useUi((state) => state.unlockedThemes);
 
   const health = useAsync(() => api.health(), []);
-  const inventory = useAsync(() => api.shop.inventory(), []);
+  const rewards = useAsync(() => api.rewards.list(), []);
 
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
@@ -125,12 +125,6 @@ export function Profile() {
                 onChange={(value) => void save({ typoTolerance: value }, true)}
               />
               <Toggle
-                label="Автопереход"
-                description="После верного ответа следующее слово появляется само."
-                checked={user.autoAdvance}
-                onChange={(value) => void save({ autoAdvance: value }, true)}
-              />
-              <Toggle
                 label="Озвучка"
                 description="Слова и реплики репетитора произносятся синтезатором браузера."
                 checked={user.soundEnabled}
@@ -149,7 +143,7 @@ export function Profile() {
           <Card>
             <SectionTitle title="Оформление" />
             <div className="flex gap-2">
-              {(
+              {              (
                 [
                   { value: 'light', label: 'Светлая', hint: 'белый фон, максимум воздуха' },
                   { value: 'paper', label: 'Бумага', hint: 'тёплый оттенок, мягче для глаз' },
@@ -170,7 +164,7 @@ export function Profile() {
                   >
                     <span className="text-ink block text-[13px] font-medium">{option.label}</span>
                     <span className="text-faint mt-0.5 block text-[12px] leading-snug">
-                      {locked ? 'Покупается в магазине' : option.hint}
+                      {locked ? `Откроется на ${THEME_UNLOCK_LEVEL[option.value]} уровне` : option.hint}
                     </span>
                   </button>
                 );
@@ -207,43 +201,46 @@ export function Profile() {
                 <span className="text-[17px] font-semibold tabular-nums">{progress.level}</span>
               </Ring>
               <div>
-                <p className="text-ink text-sm font-medium">Уровень {progress.level}</p>
+                <p className="text-ink text-sm font-medium">Уровень {progress.level} из 1000</p>
                 <p className="text-faint mt-0.5 text-[12px] tabular-nums">
-                  {formatNumber(progress.xpIntoLevel)} / {formatNumber(progress.xpForLevel)} опыта
+                  {progress.isMax
+                    ? 'максимальный уровень'
+                    : `${formatNumber(progress.pointsIntoLevel)} / ${formatNumber(progress.pointsForLevel)} очков`}
                 </p>
                 <Progress className="mt-2 w-32" value={progress.progress} />
               </div>
             </div>
 
             <div className="border-line mt-5 grid grid-cols-2 gap-4 border-t pt-5">
-              <Stat label="Монеты" value={formatNumber(user.coins)} />
-              <Stat label="Всего опыта" value={formatNumber(user.xp)} />
+              <Stat label="Очки рейтинга" value={formatNumber(user.points)} />
+              <Stat
+                label="До уровня выше"
+                value={progress.isMax ? '—' : formatNumber(progress.pointsToNext)}
+              />
               <Stat label="Серия" value={plural(user.dailyStreak, 'день', 'дня', 'дней')} tone="accent" />
               <Stat label="Максимум" value={plural(user.longestStreak, 'день', 'дня', 'дней')} />
             </div>
           </Card>
 
           <Card>
-            <SectionTitle title="Инвентарь" />
-            {inventory.data ? (
-              inventory.data.items.length === 0 && inventory.data.streakFreezes === 0 ? (
-                <p className="text-faint text-[13px]">Пока ничего не куплено.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {inventory.data.streakFreezes > 0 ? (
-                    <li className="flex items-center justify-between text-[13px]">
-                      <span className="text-ink">Заморозка серии</span>
-                      <Badge tone="accent">×{inventory.data.streakFreezes}</Badge>
-                    </li>
-                  ) : null}
-                  {inventory.data.items.map((item) => (
-                    <li key={item.itemCode} className="flex items-center justify-between text-[13px]">
-                      <span className="text-ink">{item.itemCode}</span>
-                      <Badge>×{item.quantity}</Badge>
+            <SectionTitle title="Открыто уровнем" description="Награды выдаются за рост рейтинга" />
+            {rewards.data ? (
+              <ul className="space-y-2">
+                <li className="flex items-center justify-between text-[13px]">
+                  <span className="text-ink">Заморозка серии</span>
+                  <Badge tone={rewards.data.streakFreezes > 0 ? 'accent' : 'neutral'}>
+                    ×{rewards.data.streakFreezes}
+                  </Badge>
+                </li>
+                {rewards.data.items
+                  .filter((item) => item.unlocked && item.kind !== 'freeze')
+                  .map((item) => (
+                    <li key={item.code} className="flex items-center justify-between gap-3 text-[13px]">
+                      <span className="text-ink truncate">{item.title}</span>
+                      <Badge tone="success">{item.level} ур.</Badge>
                     </li>
                   ))}
-                </ul>
-              )
+              </ul>
             ) : (
               <Loading label="" />
             )}

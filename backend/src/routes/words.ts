@@ -4,6 +4,7 @@ import { prisma } from '../db.js';
 import { CEFR_LEVELS } from '../lib/levels.js';
 import { normalize, parseStringArray } from '../lib/text.js';
 import { enrichWord } from '../services/enrich.js';
+import { ensureExamplesForWord, examplesForWord } from '../services/examples.js';
 import { parseSenses } from '../services/practice.js';
 
 const wordRoutes: FastifyPluginAsync = async (app) => {
@@ -109,6 +110,7 @@ const wordRoutes: FastifyPluginAsync = async (app) => {
         topic: word.topic,
         gloss: word.gloss,
         senses: parseSenses(word.senses),
+        examples: await examplesForWord(id),
         transcription: word.transcription,
         audioUrl: word.audioUrl,
         example: word.example,
@@ -140,6 +142,20 @@ const wordRoutes: FastifyPluginAsync = async (app) => {
       gloss: word.gloss,
       enriched: word.enrichedAt != null,
     };
+  });
+
+  /**
+   * Примеры употребления. Разбор ответа в тренажёре получает их сразу в своём
+   * ответе; этот маршрут — запасной путь для слов, до которых фоновая
+   * подготовка ещё не добралась.
+   */
+  app.get('/:id/examples', async (request, reply) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+
+    const exists = await prisma.word.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'Слово не найдено' });
+
+    return { examples: await ensureExamplesForWord(id) };
   });
 
   const flagsBody = z.object({

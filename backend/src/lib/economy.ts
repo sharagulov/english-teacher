@@ -1,8 +1,11 @@
 /**
- * Экономика приложения: монеты, опыт, уровни, серии.
+ * Экономика приложения: очки рейтинга, уровни, серии.
  *
  * Принципы:
- *  • За ошибку монеты не отнимаются — наказание только в потере множителя серии,
+ *  • Единая величина прогресса — очки рейтинга. Они только накапливаются и
+ *    напрямую задают уровень: тратить их нельзя, поэтому рейтинг честно
+ *    показывает вложенный труд.
+ *  • За ошибку очки не отнимаются — наказание только в потере множителя серии,
  *    иначе заниматься становится страшно.
  *  • Награда растёт за сложность (уровень слова, режим) и за скорость,
  *    но подсказки её уменьшают.
@@ -18,12 +21,12 @@ export const PRACTICE_MODES: PracticeMode[] = ['classic', 'reverse', 'choice', '
 
 /** Базовая награда за слово в зависимости от его уровня. */
 const BASE_BY_LEVEL: Record<CefrLevel, number> = {
-  A1: 4,
-  A2: 5,
-  B1: 7,
-  B2: 9,
-  C1: 12,
-  C2: 15,
+  A1: 6,
+  A2: 8,
+  B1: 11,
+  B2: 14,
+  C1: 18,
+  C2: 22,
 };
 
 /** Насколько режим сложнее классического — на это множится награда. */
@@ -78,8 +81,7 @@ export interface RewardInput {
 }
 
 export interface Reward {
-  coins: number;
-  xp: number;
+  points: number;
   /** Разбор начисления — показывается в интерфейсе, чтобы правила были прозрачны. */
   breakdown: { label: string; value: string }[];
   streakMultiplier: number;
@@ -90,12 +92,15 @@ export function streakMultiplier(sessionStreak: number): number {
   return 1 + Math.min(Math.floor(sessionStreak / 3) * 0.15, 1);
 }
 
+/** Каждая подсказка оставляет от награды только эту долю. */
+export const HINT_REWARD_FACTOR = 0.6;
+
 export function computeReward(input: RewardInput): Reward {
   const breakdown: { label: string; value: string }[] = [];
 
   if (!input.isCorrect) {
-    // Небольшой опыт за попытку: работа над ошибкой — тоже учёба.
-    return { coins: 0, xp: 1, breakdown: [{ label: 'Опыт за попытку', value: '+1 XP' }], streakMultiplier: 1 };
+    // Одно очко за попытку: работа над ошибкой — тоже учёба.
+    return { points: 1, breakdown: [{ label: 'Очко за попытку', value: '+1' }], streakMultiplier: 1 };
   }
 
   const base = BASE_BY_LEVEL[input.level];
@@ -114,62 +119,112 @@ export function computeReward(input: RewardInput): Reward {
     breakdown.push({ label: 'Опечатка', value: '×0.5' });
   }
 
-  let coins = base * modeMultiplier * multiplier * typoFactor;
+  let points = base * modeMultiplier * multiplier * typoFactor;
 
   if (input.isFirstCorrect) {
-    coins += base;
+    points += base;
     breakdown.push({ label: 'Новое слово', value: `+${base}` });
   }
 
-  const speedBonus = input.responseMs > 0 && input.responseMs < 3000 ? 2 : input.responseMs < 6000 ? 1 : 0;
+  const speedBonus = input.responseMs > 0 && input.responseMs < 3000 ? 4 : input.responseMs < 6000 ? 2 : 0;
   if (speedBonus > 0) {
-    coins += speedBonus;
+    points += speedBonus;
     breakdown.push({ label: 'Скорость', value: `+${speedBonus}` });
   }
 
   if (input.hintsUsed > 0) {
-    coins /= 1 + input.hintsUsed;
-    breakdown.push({ label: `Подсказки (${input.hintsUsed})`, value: `÷${1 + input.hintsUsed}` });
+    points *= HINT_REWARD_FACTOR ** input.hintsUsed;
+    breakdown.push({
+      label: `Подсказки (${input.hintsUsed})`,
+      value: `−${Math.round((1 - HINT_REWARD_FACTOR ** input.hintsUsed) * 100)}%`,
+    });
   }
 
-  const finalCoins = Math.max(1, Math.round(coins));
-  const xp = Math.max(1, Math.round(base * 1.5 * modeMultiplier * typoFactor));
-
-  return { coins: finalCoins, xp, breakdown, streakMultiplier: multiplier };
+  return { points: Math.max(1, Math.round(points)), breakdown, streakMultiplier: multiplier };
 }
 
 // ──────────────────────────────── Уровни ────────────────────────────────
 
-/** Сколько опыта нужно, чтобы перейти с уровня `level` на следующий. */
-export function xpForNextLevel(level: number): number {
-  return 200 + (level - 1) * 100;
+export const MAX_LEVEL = 1000;
+
+/**
+ * Кривая уровней: всего очков для уровня L = BASE × L^EXPONENT.
+ *
+ * BASE = 50 совпадает со стартовым рейтингом новичка — первый уровень открыт
+ * сразу. Показатель 2 — единственная степень, при которой второй уровень
+ * приходит ровно на 200 очках (50 × 2² = 200). Квадрат делает рост
+ * сверхлинейным: шаг между уровнями растёт с 150 очков в начале до ~100 000
+ * на тысячном, а весь путь до 1000 стоит 50 000 000 очков.
+ * Числа проверяются скриптом scripts/rating-curve.mjs.
+ */
+const LEVEL_BASE = 50;
+const LEVEL_EXPONENT = 2;
+
+/** Сколько очков всего нужно, чтобы достичь уровня. */
+export function totalPointsForLevel(level: number): number {
+  const clamped = Math.min(Math.max(Math.floor(level), 1), MAX_LEVEL);
+  return Math.round(LEVEL_BASE * clamped ** LEVEL_EXPONENT);
 }
 
-/** Суммарный опыт, необходимый для достижения уровня. */
-export function totalXpForLevel(level: number): number {
-  let total = 0;
-  for (let n = 1; n < level; n++) total += xpForNextLevel(n);
-  return total;
+/**
+ * Уровень по очкам. Обратная функция даёт готовый ответ сразу, а короткая
+ * доводка страхует от погрешности с плавающей точкой — перебора 1000 уровней нет.
+ */
+export function levelFromPoints(points: number): number {
+  if (points < LEVEL_BASE) return 1;
+  const guess = Math.floor((points / LEVEL_BASE) ** (1 / LEVEL_EXPONENT));
+  let level = Math.min(Math.max(guess, 1), MAX_LEVEL);
+  while (level < MAX_LEVEL && totalPointsForLevel(level + 1) <= points) level++;
+  while (level > 1 && totalPointsForLevel(level) > points) level--;
+  return level;
 }
 
 export interface LevelProgress {
   level: number;
-  xp: number;
-  xpIntoLevel: number;
-  xpForLevel: number;
+  points: number;
+  /** Очки, набранные внутри текущего уровня. */
+  pointsIntoLevel: number;
+  /** Сколько очков стоит текущий уровень целиком. */
+  pointsForLevel: number;
   progress: number;
+  /** Сколько очков осталось до следующего уровня. */
+  pointsToNext: number;
+  /** Порог следующего уровня; на максимуме — null. */
+  nextLevelAt: number | null;
+  isMax: boolean;
 }
 
-export function levelProgress(xp: number): LevelProgress {
-  let level = 1;
-  let consumed = 0;
-  while (consumed + xpForNextLevel(level) <= xp) {
-    consumed += xpForNextLevel(level);
-    level++;
+export function levelProgress(points: number): LevelProgress {
+  const level = levelFromPoints(points);
+  const start = totalPointsForLevel(level);
+
+  if (level >= MAX_LEVEL) {
+    return {
+      level: MAX_LEVEL,
+      points,
+      pointsIntoLevel: 0,
+      pointsForLevel: 0,
+      progress: 1,
+      pointsToNext: 0,
+      nextLevelAt: null,
+      isMax: true,
+    };
   }
-  const xpForLevel = xpForNextLevel(level);
-  const xpIntoLevel = xp - consumed;
-  return { level, xp, xpIntoLevel, xpForLevel, progress: xpIntoLevel / xpForLevel };
+
+  const next = totalPointsForLevel(level + 1);
+  const span = next - start;
+  const into = Math.max(0, points - start);
+
+  return {
+    level,
+    points,
+    pointsIntoLevel: into,
+    pointsForLevel: span,
+    progress: span > 0 ? Math.min(into / span, 1) : 0,
+    pointsToNext: Math.max(0, next - points),
+    nextLevelAt: next,
+    isMax: false,
+  };
 }
 
 // ──────────────────────────── Бонусы и серии ────────────────────────────
@@ -177,30 +232,23 @@ export function levelProgress(xp: number): LevelProgress {
 /** Награда за завершение пулла: зависит от размера и точности. */
 export function poolCompletionReward(size: number, correct: number, total: number) {
   const accuracy = total > 0 ? correct / total : 0;
-  const coins = size + Math.round(size * accuracy * 2);
-  const xp = size * 3;
-  return { coins, xp, accuracy };
+  const points = size * 2 + Math.round(size * accuracy * 3);
+  return { points, accuracy };
 }
 
 /** Бонус за дневную серию: растёт, но упирается в потолок. */
 export function dailyStreakReward(streak: number): number {
-  return Math.min(10 + streak * 5, 100);
+  return Math.min(25 + streak * 10, 250);
 }
 
-export const DAILY_GOAL_REWARD = { coins: 50, xp: 100 };
-export const MASTERY_REWARD = { coins: 40, xp: 80 };
+export const DAILY_GOAL_REWARD = 150;
+export const MASTERY_REWARD = 100;
+/** Награда за один ход диалога с репетитором. */
+export const CHAT_TURN_REWARD = 10;
 
-// ──────────────────────────────── Магазин ────────────────────────────────
+// ──────────────────────────────── Подсказки ────────────────────────────────
 
 export type HintKind = 'letter' | 'gloss' | 'length' | 'choices';
-
-/** Подсказки покупаются в момент использования и уменьшают награду за ответ. */
-export const HINT_COSTS: Record<HintKind, number> = {
-  length: 3,
-  gloss: 8,
-  letter: 12,
-  choices: 20,
-};
 
 export const HINT_LABELS: Record<HintKind, string> = {
   length: 'Длина слова',
@@ -209,60 +257,71 @@ export const HINT_LABELS: Record<HintKind, string> = {
   choices: 'Четыре варианта',
 };
 
-export interface ShopItem {
+export const HINT_KINDS: HintKind[] = ['length', 'gloss', 'letter', 'choices'];
+
+// ──────────────────────────── Награды за уровни ────────────────────────────
+
+/** Сколько заморозок серии можно держать одновременно. */
+export const MAX_STREAK_FREEZES = 5;
+
+/** Каждые столько уровней выдаётся заморозка серии. */
+export const FREEZE_GRANT_EVERY = 5;
+
+export type LevelRewardKind = 'mode' | 'theme' | 'freeze';
+
+export interface LevelReward {
   code: string;
   title: string;
   description: string;
-  price: number;
-  /** Расходуемые предметы складываются в инвентарь, остальные покупаются один раз. */
-  consumable: boolean;
-  maxQuantity?: number;
-  requiresLevel?: number;
+  level: number;
+  kind: LevelRewardKind;
 }
 
-export const SHOP_ITEMS: ShopItem[] = [
-  {
-    code: 'skip',
-    title: 'Пропуск слова',
-    description: 'Убрать слово из текущего пулла, не теряя серию верных ответов.',
-    price: 35,
-    consumable: true,
-    maxQuantity: 20,
-  },
-  {
-    code: 'freeze',
-    title: 'Заморозка серии',
-    description: 'Сохраняет дневную серию, если вы пропустили день занятий.',
-    price: 150,
-    consumable: true,
-    maxQuantity: 5,
-  },
-  {
-    code: 'double_xp',
-    title: 'Двойной опыт — 30 минут',
-    description: 'Весь опыт за ответы удваивается в течение получаса после активации.',
-    price: 250,
-    consumable: true,
-    maxQuantity: 10,
-  },
+/**
+ * Оформления открываются уровнем, а не покупкой. Те же пороги продублированы
+ * во frontend/src/store/ui.ts — там они нужны, чтобы не ждать ответа сервера.
+ */
+export const THEME_UNLOCK_LEVEL: Record<string, number> = {
+  theme_paper: 5,
+  theme_night: 12,
+};
+
+const THEME_REWARDS: LevelReward[] = [
   {
     code: 'theme_paper',
     title: 'Оформление «Бумага»',
     description: 'Тёплая бумажная палитра вместо чисто белой.',
-    price: 400,
-    consumable: false,
-    requiresLevel: 3,
+    level: THEME_UNLOCK_LEVEL['theme_paper']!,
+    kind: 'theme',
   },
   {
     code: 'theme_night',
     title: 'Оформление «Ночь»',
     description: 'Тёмная тема для занятий вечером.',
-    price: 400,
-    consumable: false,
-    requiresLevel: 3,
+    level: THEME_UNLOCK_LEVEL['theme_night']!,
+    kind: 'theme',
   },
 ];
 
-export function findShopItem(code: string): ShopItem | undefined {
-  return SHOP_ITEMS.find((item) => item.code === code);
+const FREEZE_REWARD: LevelReward = {
+  code: 'freeze',
+  title: 'Заморозка серии',
+  description: `Выдаётся каждые ${FREEZE_GRANT_EVERY} уровней и хранится до ${MAX_STREAK_FREEZES} штук. Сохраняет дневную серию, если день пропущен.`,
+  level: FREEZE_GRANT_EVERY,
+  kind: 'freeze',
+};
+
+/** Полный список того, что открывает рост уровня — для экрана наград. */
+export function levelRewards(): LevelReward[] {
+  const modes: LevelReward[] = (Object.keys(MODE_UNLOCK_LEVEL) as PracticeMode[])
+    .filter((mode) => MODE_UNLOCK_LEVEL[mode] > 1)
+    .map((mode) => ({
+      code: `mode_${mode}`,
+      title: `Режим «${MODE_LABELS[mode]}»`,
+      description: 'Новый формат тренировки в разделе «Слова».',
+      level: MODE_UNLOCK_LEVEL[mode],
+      kind: 'mode' as const,
+    }));
+
+  return [...modes, ...THEME_REWARDS, FREEZE_REWARD].sort((a, b) => a.level - b.level);
 }

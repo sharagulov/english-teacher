@@ -77,6 +77,40 @@ export function plural(count: number, one: string, few: string, many: string): s
   return `${count} ${many}`;
 }
 
+/**
+ * Разбивает фразу на части, выделяя изучаемое слово.
+ * В живых примерах слово стоит в своей форме («studies», «studied»),
+ * поэтому корень ищется с допуском на окончание: точная морфология здесь
+ * не нужна, важно лишь подсветить нужное место.
+ */
+export function splitAroundWord(sentence: string, word: string): { text: string; match: boolean }[] {
+  const base = word.trim().toLowerCase();
+  if (!/^[a-z][a-z' -]*$/.test(base)) return [{ text: sentence, match: false }];
+
+  const stem = base.length >= 4 ? base.replace(/[ey]$/, '') : base;
+  // Совсем короткому слову свободный «хвост» дать нельзя: «be» подсветило бы
+  // половину предложения, поэтому для него перечисляем окончания явно.
+  const tail = stem.length >= 3 ? '[a-z]{0,4}' : '(?:s|es|d|ed|ing)?';
+  const pattern = new RegExp(`\\b${escapeRegExp(stem)}${tail}\\b`, 'gi');
+
+  const parts: { text: string; match: boolean }[] = [];
+  let cursor = 0;
+
+  for (const found of sentence.matchAll(pattern)) {
+    const start = found.index;
+    if (start > cursor) parts.push({ text: sentence.slice(cursor, start), match: false });
+    parts.push({ text: found[0], match: true });
+    cursor = start + found[0].length;
+  }
+
+  if (cursor < sentence.length) parts.push({ text: sentence.slice(cursor), match: false });
+  return parts.length > 0 ? parts : [{ text: sentence, match: false }];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+}
+
 export const WORD_STATUS_LABELS: Record<string, string> = {
   new: 'новое',
   learning: 'изучается',
@@ -118,11 +152,22 @@ export const PART_OF_SPEECH_LABELS: Record<string, string> = {
   auxiliary: 'вспомогательный глагол',
 };
 
-/** Расшифровка причин начисления монет для истории операций. */
+/** Форма слова «очко» для заданного числа: 1 очко, 2 очка, 5 очков. */
+export function pointsWord(count: number): string {
+  const abs = Math.abs(Math.round(count)) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return 'очков';
+  if (last > 1 && last < 5) return 'очка';
+  if (last === 1) return 'очко';
+  return 'очков';
+}
+
+/** «1 240 очков» — с разделителями разрядов и правильной формой слова. */
+export const formatPoints = (value: number): string => `${formatNumber(value)} ${pointsWord(value)}`;
+
+/** Расшифровка причин начисления очков для истории рейтинга. */
 export function transactionLabel(reason: string): string {
   if (reason.startsWith('achievement:')) return 'Достижение';
-  if (reason.startsWith('purchase:')) return 'Покупка';
-  if (reason.startsWith('hint:')) return 'Подсказка';
   if (reason.startsWith('ai:')) return 'Задание ИИ';
   return (
     {

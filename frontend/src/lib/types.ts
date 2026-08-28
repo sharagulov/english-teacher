@@ -10,20 +10,22 @@ export type HintKind = 'length' | 'gloss' | 'letter' | 'choices';
 
 export interface LevelProgress {
   level: number;
-  xp: number;
-  xpIntoLevel: number;
-  xpForLevel: number;
+  points: number;
+  pointsIntoLevel: number;
+  pointsForLevel: number;
   progress: number;
+  pointsToNext: number;
+  nextLevelAt: number | null;
+  isMax: boolean;
 }
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  coins: number;
-  xp: number;
+  /** Очки рейтинга: только растут и задают уровень. */
+  points: number;
   level: number;
-  totalDelta: number;
   dailyStreak: number;
   longestStreak: number;
   streakFreezes: number;
@@ -60,8 +62,7 @@ export interface PoolState {
     status: string;
     correctCount: number;
     wrongCount: number;
-    coinsEarned: number;
-    xpEarned: number;
+    pointsEarned: number;
   };
   progress: { solved: number; total: number; remaining: number };
   question: Question | null;
@@ -74,9 +75,18 @@ export interface Achievement {
   category: string;
   threshold: number;
   metric: string;
-  coins: number;
-  xp: number;
+  points: number;
   unlockedAt?: string | null;
+}
+
+/** Состояние рейтинга после начисления очков. */
+export interface Rating {
+  points: number;
+  level: number;
+  leveledUp: boolean;
+  /** Сколько заморозок серии выдано за взятые уровни. */
+  freezesGranted: number;
+  progress: LevelProgress;
 }
 
 export interface AnswerResult {
@@ -85,23 +95,36 @@ export interface AnswerResult {
   correctAnswer: string;
   allAnswers: string[];
   matched: string | null;
-  reward: { coins: number; xp: number; breakdown: { label: string; value: string }[] };
+  reward: { points: number; breakdown: { label: string; value: string }[] };
   sessionStreak: number;
   wordProgress: { status: WordStatus; strength: number; timesSeen: number; timesCorrect: number; timesWrong: number };
-  balance: { coins: number; xp: number; level: number; leveledUp: boolean };
+  rating: Rating;
   poolCompleted: boolean;
   poolSummary?: {
     size: number;
     correct: number;
     wrong: number;
     accuracy: number;
-    coins: number;
-    xp: number;
+    points: number;
     durationMs: number;
   };
-  achievements: Pick<Achievement, 'code' | 'title' | 'description' | 'coins' | 'xp'>[];
+  achievements: Pick<Achievement, 'code' | 'title' | 'description' | 'points'>[];
   dailyGoal: { reached: boolean; justCompleted: boolean; correct: number; goal: number };
-  word: { text: string; gloss: string | null; senses: { sense: string; translations: string[] }[]; level: CefrLevel };
+  word: {
+    id: number;
+    text: string;
+    gloss: string | null;
+    senses: { sense: string; translations: string[] }[];
+    examples: WordExample[];
+    level: CefrLevel;
+  };
+}
+
+/** Короткая фраза с изучаемым словом: из корпуса Tatoeba, словаря или от ИИ. */
+export interface WordExample {
+  text: string;
+  translation: string | null;
+  source: string;
 }
 
 export interface PracticeOverview {
@@ -116,7 +139,8 @@ export interface PracticeOverview {
   activePool: PoolState | null;
   modes: { mode: PracticeMode; label: string; unlockLevel: number; unlocked: boolean }[];
   topics: { topic: string; count: number }[];
-  hints: { kind: HintKind; label: string; cost: number }[];
+  /** penalty — какая доля награды за слово теряется за каждую подсказку. */
+  hints: { kind: HintKind; label: string; penalty: number }[];
 }
 
 export interface StatsOverview {
@@ -146,15 +170,14 @@ export interface StatsOverview {
     correct: number;
     attempts: number;
     newWords: number;
-    coins: number;
-    xp: number;
+    points: number;
     timeMs: number;
     goal: number;
     goalProgress: number;
   };
   review: { dueNow: number; dueTomorrow: number; dueWeek: number };
   ai: { submissions: number };
-  economy: { earned: number; spent: number; balance: number };
+  rating: { points: number; level: number; progress: LevelProgress };
 }
 
 export interface DailyPoint {
@@ -166,12 +189,13 @@ export interface DailyPoint {
   newWords: number;
   learned: number;
   mastered: number;
-  coins: number;
-  xp: number;
+  points: number;
   timeMs: number;
   aiTasks: number;
   poolsDone: number;
 }
+
+export type WordStatsSort = 'errors' | 'accuracy' | 'strength' | 'recent' | 'due' | 'alphabet' | 'seen' | 'slowest';
 
 export interface WordRow {
   wordId: number;
@@ -239,6 +263,7 @@ export interface WordDetail {
     topic: string | null;
     gloss: string | null;
     senses: { sense: string; translations: string[] }[];
+    examples: WordExample[];
     transcription: string | null;
     audioUrl: string | null;
     example: string | null;
@@ -310,22 +335,29 @@ export interface AiResult {
   better: string;
   praise: string;
   reference: Record<string, unknown>;
-  reward: { coins: number; xp: number };
-  balance: { coins: number; xp: number; level: number; leveledUp: boolean };
-  achievements: Pick<Achievement, 'code' | 'title' | 'description' | 'coins' | 'xp'>[];
+  reward: { points: number };
+  rating: Rating;
+  achievements: Pick<Achievement, 'code' | 'title' | 'description' | 'points'>[];
 }
 
-export interface ShopItem {
+/** Награда, которая открывается уровнем: режим, оформление или заморозка серии. */
+export interface LevelRewardItem {
   code: string;
   title: string;
   description: string;
-  price: number;
-  consumable: boolean;
-  maxQuantity?: number;
-  requiresLevel?: number;
+  level: number;
+  kind: 'mode' | 'theme' | 'freeze';
+  unlocked: boolean;
   quantity: number;
-  canBuy: boolean;
-  reason: string | null;
+}
+
+export interface RewardsOverview {
+  points: number;
+  progress: LevelProgress;
+  streakFreezes: number;
+  maxStreakFreezes: number;
+  freezeGrantEvery: number;
+  items: LevelRewardItem[];
 }
 
 export interface ChatMessage {

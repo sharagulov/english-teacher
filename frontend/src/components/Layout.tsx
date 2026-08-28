@@ -12,15 +12,19 @@ const NAV = [
   { to: '/chat', label: 'Диалог' },
   { to: '/dictionary', label: 'Словарь' },
   { to: '/stats', label: 'Статистика' },
-  { to: '/shop', label: 'Магазин' },
+  { to: '/rewards', label: 'Награды' },
   { to: '/profile', label: 'Профиль' },
 ];
 
-function CoinIcon() {
+function RatingIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 4.8v6.4M6.2 6.6h3.6M6.2 9.4h3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M2.5 13.5v-4M6.5 13.5V7M10.5 13.5V4M14.5 13.5V9.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -82,24 +86,33 @@ export function Layout() {
                   <FlameIcon />
                   {user.dailyStreak}
                 </span>
-                <span className="text-ink flex items-center gap-1 text-[13px] font-medium tabular-nums" title="Монеты">
-                  <CoinIcon />
-                  {formatNumber(user.coins)}
+                <span className="text-ink flex items-center gap-1 text-[13px] font-medium tabular-nums" title="Очки рейтинга">
+                  <RatingIcon />
+                  {formatNumber(user.points)}
                 </span>
                 {progress ? (
-                  <span
-                    className="border-line hidden items-center gap-1.5 rounded-lg border px-2 py-1 text-[12px] sm:flex"
-                    title={`${progress.xpIntoLevel} / ${progress.xpForLevel} опыта до следующего уровня`}
+                  <NavLink
+                    to="/rewards"
+                    className="border-line hover:border-line-strong hidden items-center gap-1.5 rounded-lg border px-2 py-1 text-[12px] transition-colors sm:flex"
+                    title={
+                      progress.isMax
+                        ? 'Максимальный уровень'
+                        : `${formatNumber(progress.pointsIntoLevel)} / ${formatNumber(progress.pointsForLevel)} очков до следующего уровня`
+                    }
                   >
                     <span className="text-faint">ур.</span>
                     <span className="text-ink font-semibold tabular-nums">{progress.level}</span>
-                    <span className="bg-sunken relative h-1 w-8 overflow-hidden rounded-full">
-                      <span
-                        className="bg-accent absolute inset-y-0 left-0 rounded-full"
-                        style={{ width: `${progress.progress * 100}%` }}
-                      />
-                    </span>
-                  </span>
+                    {progress.isMax ? (
+                      <span className="text-faint">макс.</span>
+                    ) : (
+                      <span className="bg-sunken relative h-1 w-8 overflow-hidden rounded-full">
+                        <span
+                          className="bg-accent absolute inset-y-0 left-0 rounded-full"
+                          style={{ width: `${progress.progress * 100}%` }}
+                        />
+                      </span>
+                    )}
+                  </NavLink>
                 ) : null}
               </div>
             ) : null}
@@ -145,7 +158,7 @@ function Footer() {
                 key={option}
                 type="button"
                 onClick={() => setTheme(option)}
-                title={locked ? 'Оформление покупается в магазине' : undefined}
+                title={locked ? 'Оформление открывается уровнем рейтинга' : undefined}
                 className={cx(
                   'rounded-md px-2 py-1 transition-colors',
                   theme === option ? 'bg-sunken text-ink' : 'hover:text-ink',

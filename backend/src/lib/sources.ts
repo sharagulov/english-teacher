@@ -36,6 +36,17 @@ export const SOURCES = {
     file: 'en-ru.sqlite3',
     license: 'WikDict en-ru (CC BY-SA 3.0, данные Викисловаря)',
   },
+  /**
+   * Параллельный корпус живых предложений Tatoeba: английская фраза и её
+   * русский перевод в одной паре. Берём выгрузку OPUS в формате TMX —
+   * она отдаётся одним gzip-файлом (~15 МБ), который Node распаковывает
+   * штатным zlib, в отличие от bzip2-дампов самого Tatoeba.
+   */
+  examples: {
+    url: 'https://object.pouta.csc.fi/OPUS-Tatoeba/v2023-04-12/tmx/en-ru.tmx.gz',
+    file: 'tatoeba-en-ru.tmx.gz',
+    license: 'Tatoeba en-ru (CC BY 2.0 FR, выгрузка OPUS)',
+  },
 } as const;
 
 export type SourceKey = keyof typeof SOURCES;

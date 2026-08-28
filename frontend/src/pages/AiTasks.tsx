@@ -14,7 +14,7 @@ import {
   cx,
 } from '../components/ui';
 import { ApiError, api } from '../lib/api';
-import { formatDateTime, plural } from '../lib/format';
+import { formatDateTime, formatPoints, plural } from '../lib/format';
 import { speak } from '../lib/speech';
 import type { AiResult, AiTask, AiTaskType, CefrLevel } from '../lib/types';
 import { useAsync } from '../lib/useAsync';
@@ -110,10 +110,13 @@ export function AiTasks() {
       const response = await api.ai.submit(task.id, given);
       setResult(response.result);
       patchUser({
-        coins: response.result.balance.coins,
-        xp: response.result.balance.xp,
-        level: response.result.balance.level,
+        points: response.result.rating.points,
+        level: response.result.rating.level,
+        progress: response.result.rating.progress,
       });
+      if (response.result.rating.leveledUp) {
+        notify({ title: `Уровень ${response.result.rating.level}`, tone: 'reward' });
+      }
       for (const achievement of response.result.achievements) {
         notify({ title: achievement.title, description: achievement.description, tone: 'reward' });
       }
@@ -279,8 +282,8 @@ export function AiTasks() {
                             {item.label} · {item.level} · {formatDateTime(item.createdAt)}
                           </p>
                         </div>
-                        {item.coins > 0 ? (
-                          <span className="text-soft shrink-0 text-[13px] tabular-nums">+{item.coins}</span>
+                        {item.points > 0 ? (
+                          <span className="text-soft shrink-0 text-[13px] tabular-nums">+{item.points}</span>
                         ) : null}
                       </div>
                       {item.feedback.verdict ? (
@@ -504,7 +507,7 @@ function ResultPanel({ task, result, onNext }: { task: AiTask; result: AiResult;
           </p>
           {result.praise ? <p className="text-soft mt-1.5 text-[13px]">{result.praise}</p> : null}
           <p className="text-faint mt-2 text-[12px] tabular-nums">
-            +{result.reward.coins} монет · +{result.reward.xp} опыта
+            +{formatPoints(result.reward.points)} · уровень {result.rating.level}
           </p>
         </div>
       </div>

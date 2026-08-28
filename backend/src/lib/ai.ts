@@ -179,6 +179,33 @@ export const SCHEMAS = {
     ['summary', 'senses', 'collocations', 'confusedWith', 'mnemonic'],
   ),
 
+  wordExamples: schema(
+    'word_examples',
+    {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            word: str,
+            examples: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { en: str, ru: str },
+                required: ['en', 'ru'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['word', 'examples'],
+          additionalProperties: false,
+        },
+      },
+    },
+    ['items'],
+  ),
+
   chatReply: schema(
     'chat_reply',
     {
@@ -238,6 +265,15 @@ export const wordDeepDiveSchema = z.object({
   collocations: z.array(z.string()),
   confusedWith: z.array(z.string()),
   mnemonic: z.string(),
+});
+
+export const wordExamplesSchema = z.object({
+  items: z.array(
+    z.object({
+      word: z.string(),
+      examples: z.array(z.object({ en: z.string(), ru: z.string() })),
+    }),
+  ),
 });
 
 export const chatReplySchema = z.object({

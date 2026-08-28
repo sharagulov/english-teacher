@@ -174,6 +174,61 @@ export function displayTranslation(raw: string): string {
   return stripStress(raw).trim();
 }
 
+const VOWELS = 'aeiou';
+
+/**
+ * Приблизительные словоформы английского слова: нужны, чтобы узнать слово
+ * в живой фразе («study» → «studies», «studied», «studying»).
+ * Морфология намеренно грубая — формы служат ключом поиска, а найденное
+ * предложение всё равно проверяется по границе слова, так что лишние
+ * варианты просто ни с чем не совпадут.
+ */
+export function englishWordForms(word: string): string[] {
+  const base = word.toLowerCase().trim();
+  if (!/^[a-z][a-z']+$/.test(base)) return base ? [base] : [];
+
+  const forms = new Set<string>([base]);
+  const last = base.at(-1)!;
+  const beforeLast = base.at(-2) ?? '';
+
+  if (/(?:s|x|z|ch|sh)$/.test(base)) {
+    forms.add(`${base}es`);
+  } else if (last === 'y' && !VOWELS.includes(beforeLast)) {
+    forms.add(`${base.slice(0, -1)}ies`);
+    forms.add(`${base.slice(0, -1)}ied`);
+  } else {
+    forms.add(`${base}s`);
+  }
+
+  if (last === 'e') {
+    forms.add(`${base}d`);
+    forms.add(`${base.slice(0, -1)}ing`);
+  } else if (last !== 'y' || VOWELS.includes(beforeLast)) {
+    forms.add(`${base}ed`);
+    forms.add(`${base}ing`);
+  }
+
+  // Закрытый односложный корень удваивает согласную: stop → stopped, stopping.
+  if (base.length >= 3 && !VOWELS.includes(last) && VOWELS.includes(beforeLast) && !'wxy'.includes(last)) {
+    forms.add(`${base}${last}ed`);
+    forms.add(`${base}${last}ing`);
+  }
+
+  return [...forms];
+}
+
+/** Слова фразы в нижнем регистре — для поиска по корпусу. */
+export function tokenizeEnglish(sentence: string): string[] {
+  return sentence.toLowerCase().match(/[a-z][a-z']*/g) ?? [];
+}
+
+/** Есть ли слово (в любой из своих форм) в английской фразе. */
+export function containsWord(sentence: string, word: string): boolean {
+  const forms = new Set(englishWordForms(word));
+  if (word.includes(' ')) return sentence.toLowerCase().includes(word.toLowerCase());
+  return tokenizeEnglish(sentence).some((token) => forms.has(token));
+}
+
 /** Безопасный разбор JSON-поля с массивом строк. */
 export function parseStringArray(value: string | null | undefined): string[] {
   if (!value) return [];

@@ -115,7 +115,7 @@ export function AiChat() {
         },
       ]);
       if (user?.soundEnabled !== false) speak(result.reply);
-      patchUser({ coins: (user?.coins ?? 0) + result.reward.coins });
+      patchUser({ points: (user?.points ?? 0) + result.reward.points });
       chats.reload();
     } catch (cause) {
       setMessages((current) => current.filter((message) => message.id !== optimistic.id));

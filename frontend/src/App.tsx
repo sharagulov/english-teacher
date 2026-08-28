@@ -2,11 +2,11 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Loading } from './components/ui';
-import { api, setUnauthorizedHandler } from './lib/api';
+import { setUnauthorizedHandler } from './lib/api';
 import { Auth } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
 import { useAuth } from './store/auth';
-import { THEME_BY_ITEM_CODE, useUi, type Theme } from './store/ui';
+import { themesForLevel, useUi } from './store/ui';
 
 // Разделы, не нужные на первом экране, загружаются по требованию —
 // так первая отрисовка остаётся быстрой.
@@ -16,25 +16,17 @@ const AiTasks = lazy(() => import('./pages/AiTasks').then((m) => ({ default: m.A
 const AiChat = lazy(() => import('./pages/AiChat').then((m) => ({ default: m.AiChat })));
 const Dictionary = lazy(() => import('./pages/Dictionary').then((m) => ({ default: m.Dictionary })));
 const Stats = lazy(() => import('./pages/Stats').then((m) => ({ default: m.Stats })));
-const Shop = lazy(() => import('./pages/Shop').then((m) => ({ default: m.Shop })));
+const Rewards = lazy(() => import('./pages/Rewards').then((m) => ({ default: m.Rewards })));
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
 
-/** Оформление из магазина: применяем только купленные темы. */
+/** Оформление открывается уровнем рейтинга, поэтому следим за уровнем. */
 function ThemeUnlocker() {
+  const level = useAuth((state) => state.user?.level ?? 1);
   const setUnlockedThemes = useUi((state) => state.setUnlockedThemes);
 
   useEffect(() => {
-    api.shop
-      .inventory()
-      .then(({ items }) => {
-        setUnlockedThemes(
-          items
-            .filter((item) => item.quantity > 0 && THEME_BY_ITEM_CODE[item.itemCode])
-            .map((item) => THEME_BY_ITEM_CODE[item.itemCode] as Theme),
-        );
-      })
-      .catch(() => undefined);
-  }, [setUnlockedThemes]);
+    setUnlockedThemes(themesForLevel(level));
+  }, [level, setUnlockedThemes]);
 
   return null;
 }
@@ -93,7 +85,7 @@ export function App() {
             <Route path="chat/:sessionId" element={<AiChat />} />
             <Route path="dictionary" element={<Dictionary />} />
             <Route path="stats" element={<Stats />} />
-            <Route path="shop" element={<Shop />} />
+            <Route path="rewards" element={<Rewards />} />
             <Route path="profile" element={<Profile />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

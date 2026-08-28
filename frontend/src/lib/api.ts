@@ -13,11 +13,13 @@ import type {
   PoolState,
   PracticeMode,
   PracticeOverview,
-  ShopItem,
+  RewardsOverview,
   StatsOverview,
   User,
   WordDetail,
+  WordExample,
   WordRow,
+  WordStatsSort,
 } from './types';
 
 const TOKEN_KEY = 'lexio.token';
@@ -116,7 +118,7 @@ export const api = {
     answer: (id: string, body: { wordId: number; answer: string; responseMs: number; hintsUsed: number }) =>
       request<{ result: AnswerResult; state: PoolState }>('POST', `/practice/pools/${id}/answer`, body),
     hint: (id: string, body: { wordId: number; kind: HintKind }) =>
-      request<{ kind: string; value: string; cost: number; balance: number }>('POST', `/practice/pools/${id}/hint`, body),
+      request<{ kind: string; value: string; penalty: number }>('POST', `/practice/pools/${id}/hint`, body),
     abandon: (id: string) => request<{ ok: boolean }>('POST', `/practice/pools/${id}/abandon`),
   },
 
@@ -135,6 +137,7 @@ export const api = {
         `/words${query(params)}`,
       ),
     detail: (id: number) => request<WordDetail>('GET', `/words/${id}`),
+    examples: (id: number) => request<{ examples: WordExample[] }>('GET', `/words/${id}/examples`),
     enrich: (id: number) =>
       request<{ transcription: string | null; audioUrl: string | null; example: string | null; gloss: string | null; enriched: boolean }>(
         'POST',
@@ -159,7 +162,7 @@ export const api = {
       status?: string;
       level?: CefrLevel;
       search?: string;
-      sort?: string;
+      sort?: WordStatsSort;
       order?: 'asc' | 'desc';
       favorite?: boolean;
       page?: number;
@@ -184,8 +187,7 @@ export const api = {
           status: string;
           correctCount: number;
           wrongCount: number;
-          coinsEarned: number;
-          xpEarned: number;
+          pointsEarned: number;
           durationMs: number;
           createdAt: string;
           completedAt: string | null;
@@ -193,11 +195,8 @@ export const api = {
       }>('GET', `/stats/pools?limit=${limit}`),
   },
 
-  shop: {
-    list: () => request<{ coins: number; items: ShopItem[] }>('GET', '/shop'),
-    buy: (code: string) => request<{ ok: boolean; balance: number }>('POST', '/shop/buy', { code }),
-    inventory: () =>
-      request<{ items: { itemCode: string; quantity: number }[]; streakFreezes: number }>('GET', '/shop/inventory'),
+  rewards: {
+    list: () => request<RewardsOverview>('GET', '/rewards'),
   },
 
   ai: {
@@ -215,7 +214,7 @@ export const api = {
           isCorrect: boolean;
           answer: string;
           feedback: { verdict: string; better: string; praise: string; errors: { fragment: string; problem: string; fix: string }[] };
-          coins: number;
+          points: number;
           type: AiTaskType;
           label: string;
           level: CefrLevel;
@@ -235,7 +234,7 @@ export const api = {
         messages: ChatMessage[];
       }>('GET', `/ai/chats/${id}`),
     sendMessage: (id: string, message: string) =>
-      request<{ result: { reply: string; correction: string | null; tip: string | null; reward: { coins: number; xp: number } } }>(
+      request<{ result: { reply: string; correction: string | null; tip: string | null; reward: { points: number } } }>(
         'POST',
         `/ai/chats/${id}/messages`,
         { message },

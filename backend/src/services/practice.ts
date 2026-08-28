@@ -3,7 +3,7 @@
  *
  * Правила пулла (основной режим):
  *  • пулл — это набор из N слов;
- *  • верный ответ убирает слово из пулла и приносит монеты;
+ *  • верный ответ убирает слово из пулла и приносит очки рейтинга;
  *  • неверный — показывает правильный перевод, слово остаётся в пулле и
  *    вернётся позже, пока не будет отгадано;
  *  • когда слова заканчиваются, пулл закрывается и можно собрать новый.
@@ -14,7 +14,9 @@ import { todayKey } from '../lib/day.js';
 import {
   MODE_MULTIPLIER,
   computeReward,
+  levelProgress,
   poolCompletionReward,
+  type LevelProgress,
   type PracticeMode,
 } from '../lib/economy.js';
 import { levelsUpTo, type CefrLevel } from '../lib/levels.js';
@@ -27,7 +29,8 @@ import {
   type SrsState,
 } from '../lib/srs.js';
 import { matchAnswer, parseStringArray, type MatchType } from '../lib/text.js';
-import { applyBalance, bumpDailyStat, checkDailyGoal, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
+import { examplesForWord, prefetchExamples, type WordExampleView } from './examples.js';
+import { awardPoints, bumpDailyStat, checkDailyGoal, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
 
 /** Доля новых слов в пулле для каждого режима. */
 const NEW_WORD_RATIO: Record<PracticeMode, number> = {
@@ -243,6 +246,10 @@ export async function createPool(input: CreatePoolInput) {
     },
   });
 
+  // Примеры употребления готовим фоном: к моменту первого разбора они уже
+  // будут в базе, а ответ на создание пулла эту работу не ждёт.
+  prefetchExamples(words.map((word) => word.id));
+
   return getPoolState(input.userId, pool.id);
 }
 
@@ -275,8 +282,7 @@ export interface PoolState {
     status: string;
     correctCount: number;
     wrongCount: number;
-    coinsEarned: number;
-    xpEarned: number;
+    pointsEarned: number;
   };
   progress: { solved: number; total: number; remaining: number };
   question: Question | null;
@@ -369,8 +375,7 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
       status: pool.status,
       correctCount: pool.correctCount,
       wrongCount: pool.wrongCount,
-      coinsEarned: pool.coinsEarned,
-      xpEarned: pool.xpEarned,
+      pointsEarned: pool.pointsEarned,
     },
     progress: { solved, total, remaining: total - solved },
     question,
@@ -395,16 +400,24 @@ export interface AnswerResult {
   correctAnswer: string;
   allAnswers: string[];
   matched: string | null;
-  reward: { coins: number; xp: number; breakdown: { label: string; value: string }[] };
+  reward: { points: number; breakdown: { label: string; value: string }[] };
   sessionStreak: number;
   wordProgress: { status: string; strength: number; timesSeen: number; timesCorrect: number; timesWrong: number };
-  balance: { coins: number; xp: number; level: number; leveledUp: boolean };
+  /** Рейтинг и уровень после начисления — интерфейс обновляет их без лишнего запроса. */
+  rating: { points: number; level: number; leveledUp: boolean; freezesGranted: number; progress: LevelProgress };
   poolCompleted: boolean;
-  poolSummary?: { size: number; correct: number; wrong: number; accuracy: number; coins: number; xp: number; durationMs: number };
+  poolSummary?: { size: number; correct: number; wrong: number; accuracy: number; points: number; durationMs: number };
   achievements: UnlockedAchievement[];
   dailyGoal: { reached: boolean; justCompleted: boolean; correct: number; goal: number };
-  /** Пояснение и значения — чтобы сразу закрепить слово. */
-  word: { text: string; gloss: string | null; senses: { sense: string; translations: string[] }[]; level: string };
+  /** Пояснение, примеры и значения — чтобы сразу закрепить слово. */
+  word: {
+    id: number;
+    text: string;
+    gloss: string | null;
+    senses: { sense: string; translations: string[] }[];
+    examples: WordExampleView[];
+    level: string;
+  };
 }
 
 export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResult> {
@@ -532,8 +545,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       matchType: match.matchType,
       responseMs: input.responseMs,
       hintsUsed: input.hintsUsed,
-      coins: reward.coins,
-      xp: reward.xp,
+      points: reward.points,
     },
   });
 
@@ -566,8 +578,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     data: {
       correctCount: match.isCorrect ? { increment: 1 } : undefined,
       wrongCount: match.isCorrect ? undefined : { increment: 1 },
-      coinsEarned: { increment: reward.coins },
-      xpEarned: { increment: reward.xp },
+      pointsEarned: { increment: reward.points },
       durationMs: { increment: Math.min(input.responseMs, 120_000) },
     },
   });
@@ -576,20 +587,23 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
   const today = todayKey(user.timezoneOffset);
   await registerDailyActivity(input.userId);
 
-  let balance = await applyBalance(input.userId, {
-    coins: reward.coins,
-    xp: reward.xp,
+  let award = await awardPoints(input.userId, {
+    points: reward.points,
     reason: match.isCorrect ? 'correct_answer' : 'attempt',
     meta: { wordId: word.id, mode },
   });
+  let freezesGranted = award.freezesGranted;
+  let leveledUp = award.leveledUp;
 
   if (becameMastered) {
     const { MASTERY_REWARD } = await import('../lib/economy.js');
-    balance = await applyBalance(input.userId, {
-      ...MASTERY_REWARD,
+    award = await awardPoints(input.userId, {
+      points: MASTERY_REWARD,
       reason: 'word_mastered',
       meta: { wordId: word.id },
     });
+    freezesGranted += award.freezesGranted;
+    leveledUp = leveledUp || award.leveledUp;
   }
 
   await bumpDailyStat(input.userId, today, {
@@ -599,8 +613,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     newWords: isNewWord ? 1 : 0,
     learned: becameLearned ? 1 : 0,
     mastered: becameMastered ? 1 : 0,
-    coins: reward.coins,
-    xp: reward.xp,
+    points: reward.points,
     timeMs: Math.min(input.responseMs, 120_000),
   });
 
@@ -617,34 +630,34 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       data: {
         status: 'completed',
         completedAt: now,
-        coinsEarned: { increment: bonus.coins },
-        xpEarned: { increment: bonus.xp },
+        pointsEarned: { increment: bonus.points },
       },
     });
 
-    balance = await applyBalance(input.userId, {
-      coins: bonus.coins,
-      xp: bonus.xp,
+    award = await awardPoints(input.userId, {
+      points: bonus.points,
       reason: 'pool_complete',
       meta: { poolId: pool.id, accuracy: bonus.accuracy },
     });
+    freezesGranted += award.freezesGranted;
+    leveledUp = leveledUp || award.leveledUp;
 
-    await bumpDailyStat(input.userId, today, { coins: bonus.coins, xp: bonus.xp, poolsDone: 1 });
+    await bumpDailyStat(input.userId, today, { points: bonus.points, poolsDone: 1 });
 
     poolSummary = {
       size: finished.size,
       correct: finished.correctCount,
       wrong: finished.wrongCount,
       accuracy: bonus.accuracy,
-      coins: finished.coinsEarned + bonus.coins,
-      xp: finished.xpEarned + bonus.xp,
+      points: finished.pointsEarned + bonus.points,
       durationMs: finished.durationMs,
     };
   }
 
-  const [dailyGoal, achievements] = await Promise.all([
+  const [dailyGoal, achievements, examples] = await Promise.all([
     checkDailyGoal(input.userId),
     grantAchievements(input.userId),
+    examplesForWord(word.id),
   ]);
 
   return {
@@ -653,7 +666,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     correctAnswer: answers[0] ?? '',
     allAnswers: answers,
     matched: match.matched,
-    reward: { coins: reward.coins, xp: reward.xp, breakdown: reward.breakdown },
+    reward: { points: reward.points, breakdown: reward.breakdown },
     sessionStreak,
     wordProgress: {
       status: nextState.status,
@@ -662,15 +675,17 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       timesCorrect: nextState.timesCorrect,
       timesWrong: nextState.timesWrong,
     },
-    balance: { coins: balance.balance, xp: balance.xp, level: balance.level, leveledUp: balance.leveledUp },
+    rating: { points: award.total, level: award.level, leveledUp, freezesGranted, progress: levelProgress(award.total) },
     poolCompleted: remaining === 0,
     poolSummary,
     achievements,
     dailyGoal,
     word: {
+      id: word.id,
       text: word.text,
       gloss: word.gloss,
       senses: parseSenses(word.senses),
+      examples,
       level: word.level,
     },
   };
@@ -728,28 +743,26 @@ async function computeSessionStreak(userId: string, poolId: string): Promise<num
 export interface HintResult {
   kind: string;
   value: string;
-  cost: number;
-  balance: number;
+  /** Какая доля награды за это слово теряется из-за взятых подсказок. */
+  penalty: number;
 }
 
-export async function buyHint(
+/**
+ * Подсказки бесплатны: рейтинг тратить нельзя, поэтому цена подсказки —
+ * снижение награды за это слово (учитывается в computeReward по hintsUsed).
+ */
+export async function takeHint(
   userId: string,
   poolId: string,
   wordId: number,
   kind: 'letter' | 'gloss' | 'length' | 'choices',
 ): Promise<HintResult> {
-  const { HINT_COSTS } = await import('../lib/economy.js');
-  const cost = HINT_COSTS[kind];
+  const { HINT_REWARD_FACTOR } = await import('../lib/economy.js');
 
-  const [user, pool, word] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { coins: true } }),
+  const [pool, word] = await Promise.all([
     prisma.pool.findFirstOrThrow({ where: { id: poolId, userId }, select: { mode: true } }),
     prisma.word.findUniqueOrThrow({ where: { id: wordId } }),
   ]);
-
-  if (user.coins < cost) {
-    throw Object.assign(new Error('Не хватает монет на подсказку.'), { statusCode: 402 });
-  }
 
   const direction = directionForMode(pool.mode as PracticeMode);
   const answers = expectedAnswers(word, direction);
@@ -772,9 +785,7 @@ export async function buyHint(
     }
   }
 
-  const balance = await applyBalance(userId, { coins: -cost, reason: `hint:${kind}`, meta: { wordId } });
-
-  return { kind, value, cost, balance: balance.balance };
+  return { kind, value, penalty: 1 - HINT_REWARD_FACTOR };
 }
 
 // ─────────────────────────────── Прочее ───────────────────────────────
