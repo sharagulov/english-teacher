@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -17,7 +17,36 @@ import { ApiError, api } from '../lib/api';
 import { MODE_LABELS, formatNumber, plural } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
 import type { CefrLevel, PracticeMode } from '../lib/types';
+import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
+
+const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+function excludedLevelsKey(userId: string): string {
+  return `lexio.practice.excludedLevels.${userId}`;
+}
+
+function loadExcludedLevels(userId: string | undefined): CefrLevel[] {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(excludedLevelsKey(userId));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const levels = parsed.filter(
+      (item): item is CefrLevel =>
+        typeof item === 'string' && (CEFR_LEVELS as readonly string[]).includes(item),
+    );
+    return levels.length >= CEFR_LEVELS.length ? levels.slice(0, -1) : levels;
+  } catch {
+    return [];
+  }
+}
+
+function saveExcludedLevels(userId: string | undefined, levels: CefrLevel[]): void {
+  if (!userId) return;
+  localStorage.setItem(excludedLevelsKey(userId), JSON.stringify(levels));
+}
 
 /** Что даёт каждый режим — коротко, чтобы выбор был осознанным. */
 const MODE_NOTES: Record<PracticeMode, string> = {
@@ -48,17 +77,29 @@ const SIZES = [10, 15, 20, 30, 40];
 export function Practice() {
   const navigate = useNavigate();
   const notify = useUi((state) => state.notify);
+  const userId = useAuth((state) => state.user?.id);
   const overview = useAsync(() => api.practice.overview(), []);
 
   const [mode, setMode] = useState<PracticeMode>('classic');
   const [size, setSize] = useState(20);
-  const [excludedLevels, setExcludedLevels] = useState<CefrLevel[]>([]);
+  const [excludedLevels, setExcludedLevels] = useState<CefrLevel[]>(() => loadExcludedLevels(userId));
   const [topics, setTopics] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [levelError, setLevelError] = useState<string | null>(null);
 
   const data = overview.data;
+
+  useEffect(() => {
+    if (!data?.levels.length) return;
+    const visible = excludedLevels.filter((level) => data.levels.includes(level));
+    if (visible.length < data.levels.length) return;
+    const keep = data.levels[data.levels.length - 1];
+    if (!keep) return;
+    const next = excludedLevels.filter((level) => level !== keep);
+    setExcludedLevels(next);
+    saveExcludedLevels(userId, next);
+  }, [data, excludedLevels, userId]);
 
   const available = useMemo(() => {
     if (!data) return 0;
@@ -73,7 +114,6 @@ export function Practice() {
 
   const activePool = data.activePool;
   const multiplier = data.availability.modeMultipliers[mode] ?? 1;
-  const hintPenalty = data.hints[0]?.penalty ?? 0;
 
   const toggle = <T,>(list: T[], value: T): T[] =>
     list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
@@ -82,12 +122,14 @@ export function Practice() {
 
   const toggleLevel = (level: CefrLevel) => {
     const alreadyExcluded = excludedLevels.includes(level);
-    if (!alreadyExcluded && excludedLevels.length >= data.levels.length - 1) {
+    if (!alreadyExcluded && includedLevels.length <= 1) {
       setLevelError('Оставьте хотя бы один уровень');
       return;
     }
     setLevelError(null);
-    setExcludedLevels(toggle(excludedLevels, level));
+    const next = toggle(excludedLevels, level);
+    setExcludedLevels(next);
+    saveExcludedLevels(userId, next);
   };
 
   const start = async () => {
@@ -274,11 +316,6 @@ export function Practice() {
                 {multiplier > 1 ? `, очки ×${multiplier}` : ''}
                 {excludedLevels.length > 0 ? `, без ${excludedLevels.join(', ')}` : ''}
               </p>
-              {hintPenalty > 0 ? (
-                <p className="text-faint mt-2 text-[12px] leading-relaxed">
-                  Подсказки бесплатны, но каждая снижает награду за слово на {Math.round(hintPenalty * 100)}%.
-                </p>
-              ) : null}
               {available < size ? (
                 <p className="text-warning mt-2 text-[12px] leading-relaxed">
                   Подходящих слов: {available}. Пулл будет меньше запрошенного.
@@ -309,10 +346,7 @@ export function Practice() {
                 <Kbd>1</Kbd>–<Kbd>4</Kbd> — выбор варианта
               </p>
               <p>
-                <Kbd>Ctrl</Kbd> + <Kbd>H</Kbd> — подсказка
-              </p>
-              <p>
-                <Kbd>Ctrl</Kbd> + <Kbd>Пробел</Kbd> — озвучить слово
+                <Kbd>Esc</Kbd> — не знаю
               </p>
             </div>
           </Card>

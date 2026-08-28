@@ -742,56 +742,6 @@ async function computeSessionStreak(userId: string, poolId: string): Promise<num
   return streak;
 }
 
-// ─────────────────────────────── Подсказки ───────────────────────────────
-
-export interface HintResult {
-  kind: string;
-  value: string;
-  /** Какая доля награды за это слово теряется из-за взятых подсказок. */
-  penalty: number;
-}
-
-/**
- * Подсказки бесплатны: рейтинг тратить нельзя, поэтому цена подсказки —
- * снижение награды за это слово (учитывается в computeReward по hintsUsed).
- */
-export async function takeHint(
-  userId: string,
-  poolId: string,
-  wordId: number,
-  kind: 'letter' | 'gloss' | 'length' | 'choices',
-): Promise<HintResult> {
-  const { HINT_REWARD_FACTOR } = await import('../lib/economy.js');
-
-  const [pool, word] = await Promise.all([
-    prisma.pool.findFirstOrThrow({ where: { id: poolId, userId }, select: { mode: true } }),
-    prisma.word.findUniqueOrThrow({ where: { id: wordId } }),
-  ]);
-
-  const direction = directionForMode(pool.mode as PracticeMode);
-  const answers = expectedAnswers(word, direction);
-  const answer = answers[0] ?? '';
-
-  let value: string;
-  switch (kind) {
-    case 'length':
-      value = `${answer.length} символов`;
-      break;
-    case 'letter':
-      value = answer.slice(0, 1);
-      break;
-    case 'gloss':
-      value = word.gloss ?? word.senses ?? 'Пояснение недоступно для этого слова';
-      break;
-    case 'choices': {
-      value = (await buildChoices(word, direction)).join(' · ');
-      break;
-    }
-  }
-
-  return { kind, value, penalty: 1 - HINT_REWARD_FACTOR };
-}
-
 // ─────────────────────────────── Прочее ───────────────────────────────
 
 /** Активный пулл пользователя, если он есть. */

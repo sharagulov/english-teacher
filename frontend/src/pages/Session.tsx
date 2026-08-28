@@ -16,22 +16,9 @@ import {
   splitAroundWord,
 } from '../lib/format';
 import { speak, speechSupported, stopSpeaking } from '../lib/speech';
-import type { AnswerResult, HintKind, PoolState, Question } from '../lib/types';
+import type { AnswerResult, PoolState, Question } from '../lib/types';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
-
-interface RevealedHint {
-  kind: HintKind;
-  label: string;
-  value: string;
-}
-
-const HINT_ORDER: { kind: HintKind; label: string }[] = [
-  { kind: 'length', label: 'Длина' },
-  { kind: 'gloss', label: 'Толкование' },
-  { kind: 'letter', label: 'Первая буква' },
-  { kind: 'choices', label: 'Варианты' },
-];
 
 export function Session() {
   const { poolId } = useParams<{ poolId: string }>();
@@ -48,8 +35,6 @@ export function Session() {
   const [answer, setAnswer] = useState('');
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [sending, setSending] = useState(false);
-  const [hints, setHints] = useState<RevealedHint[]>([]);
-  const [hintPending, setHintPending] = useState(false);
   const [finished, setFinished] = useState<AnswerResult['poolSummary'] | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,7 +65,6 @@ export function Session() {
     if (!question || phase === 'feedback') return;
     askedAt.current = Date.now();
     setAnswer('');
-    setHints([]);
     inputRef.current?.focus();
     if (question.direction === 'audio_en' && user?.soundEnabled !== false) {
       speak(question.prompt);
@@ -112,7 +96,7 @@ export function Session() {
           wordId: question.wordId,
           answer: trimmed,
           responseMs: Math.min(600_000, Date.now() - askedAt.current),
-          hintsUsed: hints.length,
+          hintsUsed: 0,
           ...(options?.gaveUp ? { gaveUp: true } : {}),
         });
 
@@ -150,43 +134,12 @@ export function Session() {
         setSending(false);
       }
     },
-    [poolId, question, sending, hints.length, patchUser, notify],
-  );
-
-  const takeHint = useCallback(
-    async (kind: HintKind) => {
-      if (!poolId || !question || hintPending) return;
-      if (hints.some((hint) => hint.kind === kind)) return;
-      setHintPending(true);
-      try {
-        const response = await api.practice.hint(poolId, { wordId: question.wordId, kind });
-        setHints((current) => [
-          ...current,
-          { kind, label: HINT_ORDER.find((item) => item.kind === kind)?.label ?? kind, value: response.value },
-        ]);
-      } catch (cause) {
-        notify({ title: cause instanceof ApiError ? cause.message : 'Подсказка недоступна', tone: 'danger' });
-      } finally {
-        setHintPending(false);
-      }
-    },
-    [poolId, question, hints, hintPending, notify],
+    [poolId, question, sending, patchUser, notify],
   );
 
   // ─── Клавиатура ───
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.code === 'Space') {
-        event.preventDefault();
-        if (question) speak(question.direction === 'ru_en' ? (result?.word.text ?? '') : question.prompt);
-        return;
-      }
-      if (event.ctrlKey && event.key.toLowerCase() === 'h') {
-        event.preventDefault();
-        const next = HINT_ORDER.find((item) => !hints.some((hint) => hint.kind === item.kind));
-        if (next && phase === 'question') void takeHint(next.kind);
-        return;
-      }
       if (phase === 'question' && event.key === 'Escape') {
         if (event.repeat) return;
         event.preventDefault();
@@ -211,7 +164,7 @@ export function Session() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [phase, question, answer, hints, result, advance, submit, takeHint]);
+  }, [phase, question, answer, advance, submit]);
 
   if (loadError) {
     return (
@@ -289,9 +242,6 @@ export function Session() {
             onGiveUp={() => void submit(answer, { gaveUp: true })}
             sending={sending}
             inputRef={inputRef}
-            hints={hints}
-            hintPending={hintPending}
-            onHint={(kind) => void takeHint(kind)}
           />
         ) : result ? (
           <Feedback result={result} onNext={advance} />
@@ -374,9 +324,6 @@ function QuestionForm({
   onGiveUp,
   sending,
   inputRef,
-  hints,
-  hintPending,
-  onHint,
 }: {
   question: Question;
   answer: string;
@@ -385,9 +332,6 @@ function QuestionForm({
   onGiveUp: () => void;
   sending: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
-  hints: RevealedHint[];
-  hintPending: boolean;
-  onHint: (kind: HintKind) => void;
 }) {
   const choices = question.choices;
 
@@ -456,46 +400,6 @@ function QuestionForm({
           </span>
         </div>
       ) : null}
-
-      {/* ─── Подсказки: при готовых вариантах в них нет смысла ─── */}
-      <div className={cx('mt-6', choices && choices.length > 0 && 'hidden')}>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-faint text-[12px] font-medium tracking-wide uppercase">Подсказки</span>
-          {HINT_ORDER.map((item) => {
-            const used = hints.some((hint) => hint.kind === item.kind);
-            return (
-              <button
-                key={item.kind}
-                type="button"
-                disabled={used || hintPending}
-                onClick={() => onHint(item.kind)}
-                className={cx(
-                  'rounded-lg border px-2.5 py-1 text-[12px] transition-colors duration-150',
-                  used
-                    ? 'border-transparent bg-sunken text-faint'
-                    : 'border-line text-soft hover:border-line-strong hover:text-ink',
-                )}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {hints.length > 0 ? (
-          <ul className="mt-3 space-y-1.5">
-            {hints.map((hint) => (
-              <li key={hint.kind} className="text-soft text-[13px]">
-                <span className="text-faint">{hint.label}:</span> {hint.value}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-faint mt-2 text-[12px]">
-            Подсказка снижает награду за это слово. <Kbd>Ctrl</Kbd> + <Kbd>H</Kbd>
-          </p>
-        )}
-      </div>
     </div>
   );
 }

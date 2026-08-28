@@ -2,15 +2,12 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import {
-  HINT_KINDS,
-  HINT_LABELS,
-  HINT_REWARD_FACTOR,
   MODE_LABELS,
   MODE_UNLOCK_LEVEL,
   PRACTICE_MODES,
 } from '../lib/economy.js';
 import { CEFR_LEVELS, levelsUpTo } from '../lib/levels.js';
-import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, takeHint } from '../services/practice.js';
+import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer } from '../services/practice.js';
 
 const poolBody = z.object({
   mode: z.enum(PRACTICE_MODES as [string, ...string[]]).default('classic'),
@@ -27,11 +24,6 @@ const answerBody = z.object({
   hintsUsed: z.number().int().min(0).max(4).default(0),
   /** Отказ от ответа: показать перевод и засчитать как промах, без подбора варианта. */
   gaveUp: z.boolean().optional(),
-});
-
-const hintBody = z.object({
-  wordId: z.number().int().positive(),
-  kind: z.enum(['letter', 'gloss', 'length', 'choices']),
 });
 
 const practiceRoutes: FastifyPluginAsync = async (app) => {
@@ -65,11 +57,6 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
         unlocked: user.level >= MODE_UNLOCK_LEVEL[mode],
       })),
       topics: topics.map((t) => ({ topic: t.topic as string, count: t._count })),
-      hints: HINT_KINDS.map((kind) => ({
-        kind,
-        label: HINT_LABELS[kind],
-        penalty: 1 - HINT_REWARD_FACTOR,
-      })),
     };
   });
 
@@ -122,15 +109,6 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
     const result = await submitAnswer({ userId: request.userId, poolId: id, ...parsed.data });
     const state = await getPoolState(request.userId, id);
     return { result, state };
-  });
-
-  app.post('/pools/:id/hint', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = hintBody.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'Некорректная подсказка' });
-    }
-    return takeHint(request.userId, id, parsed.data.wordId, parsed.data.kind);
   });
 
   app.post('/pools/:id/abandon', async (request) => {

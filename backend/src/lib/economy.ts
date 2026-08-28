@@ -246,19 +246,6 @@ export const MASTERY_REWARD = 100;
 /** Награда за один ход диалога с репетитором. */
 export const CHAT_TURN_REWARD = 10;
 
-// ──────────────────────────────── Подсказки ────────────────────────────────
-
-export type HintKind = 'letter' | 'gloss' | 'length' | 'choices';
-
-export const HINT_LABELS: Record<HintKind, string> = {
-  length: 'Длина слова',
-  gloss: 'Пояснение по-английски',
-  letter: 'Первая буква',
-  choices: 'Четыре варианта',
-};
-
-export const HINT_KINDS: HintKind[] = ['length', 'gloss', 'letter', 'choices'];
-
 // ──────────────────────────── Награды за уровни ────────────────────────────
 
 /** Сколько заморозок серии можно держать одновременно. */

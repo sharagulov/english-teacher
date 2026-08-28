@@ -6,8 +6,6 @@ export type WordStatus = 'new' | 'learning' | 'review' | 'mastered' | 'leech';
 
 export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong' | 'skipped';
 
-export type HintKind = 'length' | 'gloss' | 'letter' | 'choices';
-
 export interface LevelProgress {
   level: number;
   points: number;
@@ -139,8 +137,6 @@ export interface PracticeOverview {
   activePool: PoolState | null;
   modes: { mode: PracticeMode; label: string; unlockLevel: number; unlocked: boolean }[];
   topics: { topic: string; count: number }[];
-  /** penalty — какая доля награды за слово теряется за каждую подсказку. */
-  hints: { kind: HintKind; label: string; penalty: number }[];
 }
 
 export interface StatsOverview {
