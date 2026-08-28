@@ -1,0 +1,597 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Badge, Button, Card, ErrorNote, Kbd, LinkButton, Loading, Progress, Stat, cx } from '../components/ui';
+import { ApiError, api } from '../lib/api';
+import {
+  MATCH_TYPE_LABELS,
+  MODE_LABELS,
+  PART_OF_SPEECH_LABELS,
+  formatDuration,
+  formatNumber,
+  formatPercent,
+  plural,
+} from '../lib/format';
+import { speak, speechSupported, stopSpeaking } from '../lib/speech';
+import type { AnswerResult, HintKind, PoolState, Question } from '../lib/types';
+import { useAuth } from '../store/auth';
+import { useUi } from '../store/ui';
+
+interface RevealedHint {
+  kind: HintKind;
+  label: string;
+  value: string;
+}
+
+const HINT_ORDER: { kind: HintKind; label: string }[] = [
+  { kind: 'length', label: 'Длина' },
+  { kind: 'gloss', label: 'Толкование' },
+  { kind: 'letter', label: 'Первая буква' },
+  { kind: 'choices', label: 'Варианты' },
+];
+
+export function Session() {
+  const { poolId } = useParams<{ poolId: string }>();
+  const navigate = useNavigate();
+  const user = useAuth((state) => state.user);
+  const patchUser = useAuth((state) => state.patchUser);
+  const notify = useUi((state) => state.notify);
+
+  const [state, setState] = useState<PoolState | null>(null);
+  // Ответ сервера содержит уже следующий вопрос, поэтому применяем его
+  // только после закрытия разбора — иначе слово было бы видно заранее.
+  const [pending, setPending] = useState<PoolState | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [answer, setAnswer] = useState('');
+  const [result, setResult] = useState<AnswerResult | null>(null);
+  const [sending, setSending] = useState(false);
+  const [hints, setHints] = useState<RevealedHint[]>([]);
+  const [hintPending, setHintPending] = useState(false);
+  const [finished, setFinished] = useState<AnswerResult['poolSummary'] | null>(null);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const askedAt = useRef(Date.now());
+
+  const question = state?.question ?? null;
+  const phase: 'question' | 'feedback' = result ? 'feedback' : 'question';
+
+  // ─── Загрузка пулла ───
+  useEffect(() => {
+    if (!poolId) return;
+    let alive = true;
+    api.practice
+      .pool(poolId)
+      .then((loaded) => {
+        if (alive) setState(loaded);
+      })
+      .catch((cause: unknown) => {
+        if (alive) setLoadError(cause instanceof ApiError ? cause.message : 'Пулл не найден');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [poolId]);
+
+  // ─── Новый вопрос: сброс ввода, отсчёт времени, озвучка на слух ───
+  useEffect(() => {
+    if (!question || phase === 'feedback') return;
+    askedAt.current = Date.now();
+    setAnswer('');
+    setHints([]);
+    inputRef.current?.focus();
+    if (question.direction === 'audio_en' && user?.soundEnabled !== false) {
+      speak(question.prompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question?.wordId, question?.isRetry, phase]);
+
+  useEffect(() => stopSpeaking, []);
+
+  const advance = useCallback(() => {
+    setPending((next) => {
+      if (next) setState(next);
+      return null;
+    });
+    setResult(null);
+    // Фокус возвращается после перерисовки поля.
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  const submit = useCallback(
+    async (given: string) => {
+      if (!poolId || !question || sending) return;
+      const trimmed = given.trim();
+      if (!trimmed) return;
+
+      setSending(true);
+      try {
+        const response = await api.practice.answer(poolId, {
+          wordId: question.wordId,
+          answer: trimmed,
+          responseMs: Math.min(600_000, Date.now() - askedAt.current),
+          hintsUsed: hints.length,
+        });
+
+        setPending(response.state);
+        setResult(response.result);
+
+        const { balance } = response.result;
+        patchUser({ coins: balance.coins, xp: balance.xp, level: balance.level });
+
+        if (balance.leveledUp) {
+          notify({ title: `Уровень ${balance.level}`, description: 'Открылись новые режимы', tone: 'reward' });
+        }
+        for (const achievement of response.result.achievements) {
+          notify({ title: achievement.title, description: achievement.description, tone: 'reward' });
+        }
+        if (response.result.dailyGoal.justCompleted) {
+          notify({ title: 'Дневная цель выполнена', tone: 'success' });
+        }
+        if (response.result.poolCompleted) {
+          setFinished(response.result.poolSummary ?? null);
+        }
+      } catch (cause) {
+        notify({
+          title: cause instanceof ApiError ? cause.message : 'Ответ не отправлен',
+          tone: 'danger',
+        });
+      } finally {
+        setSending(false);
+      }
+    },
+    [poolId, question, sending, hints.length, patchUser, notify],
+  );
+
+  const buyHint = useCallback(
+    async (kind: HintKind) => {
+      if (!poolId || !question || hintPending) return;
+      if (hints.some((hint) => hint.kind === kind)) return;
+      setHintPending(true);
+      try {
+        const response = await api.practice.hint(poolId, { wordId: question.wordId, kind });
+        setHints((current) => [
+          ...current,
+          { kind, label: HINT_ORDER.find((item) => item.kind === kind)?.label ?? kind, value: response.value },
+        ]);
+        patchUser({ coins: response.balance });
+      } catch (cause) {
+        notify({ title: cause instanceof ApiError ? cause.message : 'Подсказка недоступна', tone: 'danger' });
+      } finally {
+        setHintPending(false);
+      }
+    },
+    [poolId, question, hints, hintPending, patchUser, notify],
+  );
+
+  // ─── Клавиатура ───
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.code === 'Space') {
+        event.preventDefault();
+        if (question) speak(question.direction === 'ru_en' ? (result?.word.text ?? '') : question.prompt);
+        return;
+      }
+      if (event.ctrlKey && event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        const next = HINT_ORDER.find((item) => !hints.some((hint) => hint.kind === item.kind));
+        if (next && phase === 'question') void buyHint(next.kind);
+        return;
+      }
+      if (phase === 'feedback' && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        advance();
+        return;
+      }
+      if (phase === 'question' && question?.choices && /^[1-4]$/.test(event.key)) {
+        const choice = question.choices[Number(event.key) - 1];
+        if (choice) {
+          event.preventDefault();
+          void submit(choice);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [phase, question, hints, result, advance, submit, buyHint]);
+
+  // Автопереход после верного ответа, если включён в настройках.
+  useEffect(() => {
+    if (!result || !result.isCorrect || result.poolCompleted || user?.autoAdvance !== true) return;
+    const timer = setTimeout(advance, 850);
+    return () => clearTimeout(timer);
+  }, [result, user?.autoAdvance, advance]);
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-20">
+        <ErrorNote message={loadError} />
+        <div className="mt-4 flex justify-center">
+          <LinkButton to="/practice" variant="secondary">
+            К выбору режима
+          </LinkButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state) return <Loading label="Открываем пулл" />;
+
+  // Итоги показываем только после того, как пользователь закрыл разбор
+  // последнего ответа, — иначе он бы его не увидел.
+  if (!result && (finished || (!question && state.pool.status !== 'active'))) {
+    return <Summary state={pending ?? state} summary={finished} />;
+  }
+
+  if (!question) return <Loading label="Подбираем слово" />;
+
+  const shown = pending ?? state;
+  const solved = shown.progress.solved;
+  const total = shown.progress.total;
+
+  return (
+    <div className="flex min-h-dvh flex-col">
+      {/* ─── Тонкая полоса прогресса вместо навигации ─── */}
+      <header className="border-line bg-surface/85 sticky top-0 z-20 border-b backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-3xl items-center gap-4 px-4">
+          <button
+            type="button"
+            onClick={() => navigate('/practice')}
+            className="text-faint hover:text-ink text-[13px] transition-colors"
+          >
+            ← Выйти
+          </button>
+          <div className="flex-1">
+            <Progress value={solved / Math.max(1, total)} tone="ink" />
+          </div>
+          <span className="text-soft text-[13px] font-medium tabular-nums">
+            {solved}/{total}
+          </span>
+          <span className="text-faint hidden text-[13px] tabular-nums sm:inline" title="Монеты">
+            {formatNumber(user?.coins ?? 0)}
+          </span>
+        </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-10">
+        <div className="mb-6 flex items-center gap-2">
+          <Badge>{MODE_LABELS[state.pool.mode]}</Badge>
+          <Badge>{question.level}</Badge>
+          {question.partOfSpeech ? (
+            <Badge>{PART_OF_SPEECH_LABELS[question.partOfSpeech] ?? question.partOfSpeech}</Badge>
+          ) : null}
+          {question.isRetry ? <Badge tone="warning">повтор в пулле</Badge> : null}
+          {result?.sessionStreak && result.sessionStreak > 2 ? (
+            <Badge tone="success">серия {result.sessionStreak}</Badge>
+          ) : null}
+        </div>
+
+        <Prompt question={question} />
+
+        {phase === 'question' ? (
+          <QuestionForm
+            question={question}
+            answer={answer}
+            setAnswer={setAnswer}
+            onSubmit={() => void submit(answer)}
+            sending={sending}
+            inputRef={inputRef}
+            hints={hints}
+            hintPending={hintPending}
+            onHint={(kind) => void buyHint(kind)}
+          />
+        ) : result ? (
+          <Feedback result={result} onNext={advance} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────── Вопрос ───────────────────────────────
+
+function Prompt({ question }: { question: Question }) {
+  const isAudio = question.direction === 'audio_en';
+
+  return (
+    <div className="mb-8">
+      {isAudio ? (
+        <div className="flex flex-col items-start gap-3">
+          <button
+            type="button"
+            onClick={() => speak(question.prompt)}
+            className="border-line hover:border-line-strong bg-raised flex h-16 w-16 items-center justify-center rounded-2xl border transition-colors"
+            aria-label="Прослушать слово"
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M4 9v6h3l5 4V5L7 9H4Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+          <p className="text-faint text-[13px]">Нажмите, чтобы прослушать ещё раз</p>
+        </div>
+      ) : (
+        <>
+          <p className="word-display text-ink text-[44px] leading-tight font-semibold tracking-tight sm:text-[56px]">
+            {question.prompt}
+          </p>
+          <div className="mt-2 flex items-center gap-3">
+            {question.transcription ? <p className="text-faint text-[15px]">{question.transcription}</p> : null}
+            {question.direction === 'en_ru' && speechSupported() ? (
+              <button
+                type="button"
+                onClick={() => speak(question.prompt)}
+                className="text-faint hover:text-ink text-[13px] transition-colors"
+              >
+                Прослушать
+              </button>
+            ) : null}
+          </div>
+        </>
+      )}
+
+      <p className="text-soft mt-4 text-[13px]">
+        {question.choices && question.choices.length > 0 ? (
+          question.direction === 'ru_en' ? (
+            'Выберите английское слово'
+          ) : (
+            'Выберите перевод'
+          )
+        ) : (
+          <>
+            {question.direction === 'ru_en' ? 'Напишите слово по-английски' : 'Напишите перевод на русский'}
+            {question.answerLength > 0 ? ` · ${plural(question.answerLength, 'буква', 'буквы', 'букв')}` : ''}
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function QuestionForm({
+  question,
+  answer,
+  setAnswer,
+  onSubmit,
+  sending,
+  inputRef,
+  hints,
+  hintPending,
+  onHint,
+}: {
+  question: Question;
+  answer: string;
+  setAnswer: (value: string) => void;
+  onSubmit: () => void;
+  sending: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  hints: RevealedHint[];
+  hintPending: boolean;
+  onHint: (kind: HintKind) => void;
+}) {
+  const choices = question.choices;
+
+  return (
+    <div>
+      {choices && choices.length > 0 ? (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {choices.map((choice, index) => (
+            <button
+              key={choice}
+              type="button"
+              disabled={sending}
+              onClick={() => {
+                setAnswer(choice);
+                onSubmit();
+              }}
+              className="border-line bg-raised hover:border-line-strong flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left text-sm transition-colors duration-150 disabled:opacity-50"
+            >
+              <Kbd>{index + 1}</Kbd>
+              <span className="text-ink">{choice}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <div className="flex gap-2.5">
+            <input
+              ref={inputRef}
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              lang={question.direction === 'ru_en' ? 'en' : 'ru'}
+              placeholder={question.direction === 'ru_en' ? 'english word' : 'перевод'}
+              className="border-line bg-raised text-ink placeholder:text-faint focus:border-ink h-14 flex-1 rounded-xl border px-4 text-[17px] transition-colors outline-none"
+            />
+            <Button type="submit" variant="primary" size="lg" loading={sending} disabled={!answer.trim()}>
+              Ответить
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* ─── Подсказки: при готовых вариантах в них нет смысла ─── */}
+      <div className={cx('mt-6', choices && choices.length > 0 && 'hidden')}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-faint text-[12px] font-medium tracking-wide uppercase">Подсказки</span>
+          {HINT_ORDER.map((item) => {
+            const used = hints.some((hint) => hint.kind === item.kind);
+            return (
+              <button
+                key={item.kind}
+                type="button"
+                disabled={used || hintPending}
+                onClick={() => onHint(item.kind)}
+                className={cx(
+                  'rounded-lg border px-2.5 py-1 text-[12px] transition-colors duration-150',
+                  used
+                    ? 'border-transparent bg-sunken text-faint'
+                    : 'border-line text-soft hover:border-line-strong hover:text-ink',
+                )}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {hints.length > 0 ? (
+          <ul className="mt-3 space-y-1.5">
+            {hints.map((hint) => (
+              <li key={hint.kind} className="text-soft text-[13px]">
+                <span className="text-faint">{hint.label}:</span> {hint.value}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-faint mt-2 text-[12px]">
+            Подсказка стоит монет и уменьшает награду. <Kbd>Ctrl</Kbd> + <Kbd>H</Kbd>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────── Разбор ответа ───────────────────────────────
+
+function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void }) {
+  const correct = result.isCorrect;
+
+  return (
+    <div>
+      <div
+        className={cx(
+          'animate-rise rounded-2xl border p-5',
+          correct ? 'border-success/30 bg-success-soft' : 'border-danger/30 bg-danger-soft',
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className={cx('text-sm font-semibold', correct ? 'text-success' : 'text-danger')}>
+              {correct
+                ? result.matchType === 'exact'
+                  ? 'Верно'
+                  : `Верно (${MATCH_TYPE_LABELS[result.matchType]})`
+                : 'Неверно'}
+            </p>
+            <p className="word-display text-ink mt-2 text-[26px] leading-tight font-semibold">
+              {result.word.text} — {result.correctAnswer}
+            </p>
+            {result.allAnswers.length > 1 ? (
+              <p className="text-soft mt-1.5 text-[13px]">
+                Также подходит: {result.allAnswers.filter((item) => item !== result.correctAnswer).join(', ')}
+              </p>
+            ) : null}
+            {result.word.gloss ? <p className="text-faint mt-2 text-[13px] italic">{result.word.gloss}</p> : null}
+          </div>
+
+          {result.reward.coins > 0 || result.reward.xp > 0 ? (
+            <div className="text-right">
+              <p className="text-ink text-[22px] font-semibold tabular-nums">+{result.reward.coins}</p>
+              <p className="text-faint text-[12px]">+{result.reward.xp} опыта</p>
+            </div>
+          ) : null}
+        </div>
+
+        {result.reward.breakdown.length > 0 ? (
+          <ul className="border-line/60 mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t pt-3">
+            {result.reward.breakdown.map((item) => (
+              <li key={item.label} className="text-soft text-[12px]">
+                {item.label} <span className="text-ink font-medium">{item.value}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {!correct ? (
+          <p className="text-soft mt-4 text-[13px]">Слово останется в пулле и вернётся ещё раз.</p>
+        ) : null}
+      </div>
+
+      {result.word.senses.length > 0 ? (
+        <Card className="mt-4">
+          <p className="text-faint mb-2.5 text-[12px] font-medium tracking-wide uppercase">Значения</p>
+          <ul className="space-y-2">
+            {result.word.senses.slice(0, 4).map((sense) => (
+              <li key={sense.sense} className="text-[13px]">
+                <span className="text-soft italic">{sense.sense}</span>
+                <span className="text-ink"> — {sense.translations.join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      <div className="mt-6 flex items-center gap-4">
+        <Button variant="primary" size="lg" onClick={onNext} autoFocus>
+          Дальше
+        </Button>
+        <span className="text-faint text-[12px]">
+          <Kbd>Enter</Kbd> — продолжить
+        </span>
+        <span className="text-faint ml-auto text-[12px]">
+          сила слова {formatPercent(result.wordProgress.strength)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────── Итоги пулла ───────────────────────────────
+
+function Summary({ state, summary }: { state: PoolState; summary: AnswerResult['poolSummary'] | null }) {
+  const pool = state.pool;
+  const accuracy = useMemo(() => {
+    if (summary) return summary.accuracy;
+    const total = pool.correctCount + pool.wrongCount;
+    return total > 0 ? pool.correctCount / total : null;
+  }, [summary, pool]);
+
+  return (
+    <div className="mx-auto w-full max-w-lg px-4 py-16">
+      <p className="text-faint text-[13px]">
+        {MODE_LABELS[pool.mode]} · пулл №{pool.ordinal}
+      </p>
+      <h1 className="text-ink mt-1 text-3xl font-semibold tracking-tight">Пулл закрыт</h1>
+      <p className="text-soft mt-2 text-sm">
+        {pool.wrongCount === 0
+          ? 'Ни одной ошибки — все слова с первого раза.'
+          : `Слова, которые не поддались сразу, вернутся в следующих пуллах.`}
+      </p>
+
+      <Card className="mt-7">
+        <div className="grid grid-cols-2 gap-5">
+          <Stat label="Слов в пулле" value={formatNumber(summary?.size ?? pool.size)} />
+          <Stat label="Точность" value={formatPercent(accuracy, 0)} tone={pool.wrongCount === 0 ? 'success' : undefined} />
+          <Stat label="Ошибок" value={formatNumber(summary?.wrong ?? pool.wrongCount)} tone={pool.wrongCount > 0 ? 'danger' : undefined} />
+          <Stat label="Время" value={summary ? formatDuration(summary.durationMs) : '—'} />
+          <Stat label="Монеты" value={`+${formatNumber(summary?.coins ?? pool.coinsEarned)}`} tone="accent" />
+          <Stat label="Опыт" value={`+${formatNumber(summary?.xp ?? pool.xpEarned)}`} />
+        </div>
+      </Card>
+
+      <div className="mt-6 flex flex-wrap gap-2.5">
+        <LinkButton to="/practice" variant="primary" size="lg">
+          Следующий пулл
+        </LinkButton>
+        <LinkButton to="/stats" variant="secondary" size="lg">
+          Статистика
+        </LinkButton>
+        <LinkButton to="/" variant="ghost" size="lg">
+          На обзор
+        </LinkButton>
+      </div>
+    </div>
+  );
+}

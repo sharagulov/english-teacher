@@ -1,0 +1,29 @@
+{
+  "name": "lexio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lexio — минималистичная платформа для системного изучения английского языка с ИИ-тренажёрами",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "start": "npm run start --workspace backend",
+    "setup": "npm install && npm run db:setup --workspace backend",
+    "db:setup": "npm run db:setup --workspace backend",
+    "db:import": "npm run db:import --workspace backend",
+    "db:reset": "npm run db:reset --workspace backend",
+    "db:studio": "npm run db:studio --workspace backend",
+    "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
