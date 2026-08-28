@@ -2,6 +2,31 @@ const numberFormat = new Intl.NumberFormat('ru-RU');
 
 export const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
 
+const usdFormat = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+const rubFormat = new Intl.NumberFormat('ru-RU', {
+  style: 'currency',
+  currency: 'RUB',
+  maximumFractionDigits: 0,
+});
+
+/** Сумма в долларах; мелкие значения не округляем до нуля. */
+export function formatUsd(value: number): string {
+  if (value > 0 && value < 0.005) return '< $0.01';
+  return usdFormat.format(value);
+}
+
+/** Ориентировочная сумма в рублях по курсу сервера. */
+export function formatRub(value: number): string {
+  if (value > 0 && value < 0.5) return '< 1 ₽';
+  return rubFormat.format(value);
+}
+
 export const formatPercent = (value: number | null | undefined, digits = 0): string =>
   value == null ? '—' : `${(value * 100).toFixed(digits)}%`;
 

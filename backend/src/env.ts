@@ -17,6 +17,8 @@ const schema = z.object({
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_BASE_URL: z.string().optional(),
+  /** Курс для ориентировочного отображения расхода в рублях. */
+  AI_USD_RUB_RATE: z.coerce.number().positive().default(95),
 });
 
 const parsed = schema.safeParse(process.env);

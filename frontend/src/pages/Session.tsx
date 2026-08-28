@@ -2,6 +2,7 @@ import { ArrowLeft, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
+import { DislikeButton } from '../components/DislikeButton';
 import { Badge, Button, Card, ErrorNote, Kbd, LinkButton, Loading, Progress, Stat, cx } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import {
@@ -84,6 +85,21 @@ export function Session() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
+  const applyDislike = useCallback((wordId: number, level: number) => {
+    setState((current) => {
+      if (!current?.question || current.question.wordId !== wordId) return current;
+      return { ...current, question: { ...current.question, dislikeLevel: level } };
+    });
+    setPending((current) => {
+      if (!current?.question || current.question.wordId !== wordId) return current;
+      return { ...current, question: { ...current.question, dislikeLevel: level } };
+    });
+    setResult((current) => {
+      if (!current || current.word.id !== wordId) return current;
+      return { ...current, wordProgress: { ...current.wordProgress, dislikeLevel: level } };
+    });
+  }, []);
+
   const submit = useCallback(
     async (given: string, options?: { gaveUp?: boolean }) => {
       if (!poolId || !question || sending) return;
@@ -101,7 +117,16 @@ export function Session() {
         });
 
         setPending(response.state);
-        setResult(response.result);
+        setResult({
+          ...response.result,
+          wordProgress: {
+            ...response.result.wordProgress,
+            dislikeLevel: Math.max(
+              response.result.wordProgress.dislikeLevel ?? 0,
+              question.dislikeLevel ?? 0,
+            ),
+          },
+        });
 
         const { rating } = response.result;
         patchUser({ points: rating.points, level: rating.level, progress: rating.progress });
@@ -150,6 +175,14 @@ export function Session() {
         // Разбор держим на экране, пока пользователь сам не нажмёт клавишу.
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(event.key)) return;
+        const target = event.target;
+        if (
+          target instanceof HTMLElement &&
+          target.closest('[data-dislike-button]') &&
+          (event.key === 'Enter' || event.key === ' ')
+        ) {
+          return;
+        }
         event.preventDefault();
         advance();
         return;
@@ -231,7 +264,11 @@ export function Session() {
           ) : null}
         </div>
 
-        <Prompt question={question} />
+        <Prompt
+          question={question}
+          showDislike={phase === 'question' && question.direction !== 'audio_en'}
+          onDislike={(level) => applyDislike(question.wordId, level)}
+        />
 
         {phase === 'question' ? (
           <QuestionForm
@@ -244,7 +281,12 @@ export function Session() {
             inputRef={inputRef}
           />
         ) : result ? (
-          <Feedback result={result} onNext={advance} />
+          <Feedback
+            result={result}
+            question={question}
+            onNext={advance}
+            onDislike={(level) => applyDislike(result.word.id, level)}
+          />
         ) : null}
       </div>
     </div>
@@ -253,7 +295,15 @@ export function Session() {
 
 // ─────────────────────────────── Вопрос ───────────────────────────────
 
-function Prompt({ question }: { question: Question }) {
+function Prompt({
+  question,
+  showDislike,
+  onDislike,
+}: {
+  question: Question;
+  showDislike: boolean;
+  onDislike: (level: number) => void;
+}) {
   const isAudio = question.direction === 'audio_en';
 
   return (
@@ -280,9 +330,19 @@ function Prompt({ question }: { question: Question }) {
         </div>
       ) : (
         <>
-          <p className="word-display text-ink text-[44px] leading-tight font-semibold tracking-tight sm:text-[56px]">
-            {question.prompt}
-          </p>
+          <div className="flex items-start gap-2.5">
+            <p className="word-display text-ink min-w-0 text-[44px] leading-tight font-semibold tracking-tight sm:text-[56px]">
+              {question.prompt}
+            </p>
+            {showDislike ? (
+              <DislikeButton
+                wordId={question.wordId}
+                level={question.dislikeLevel ?? 0}
+                onChange={onDislike}
+                className="mt-2.5 sm:mt-3.5"
+              />
+            ) : null}
+          </div>
           <div className="mt-2 flex items-center gap-3">
             {question.transcription ? <p className="text-faint text-[15px]">{question.transcription}</p> : null}
             {question.direction === 'en_ru' && speechSupported() ? (
@@ -406,8 +466,25 @@ function QuestionForm({
 
 // ─────────────────────────────── Разбор ответа ───────────────────────────────
 
-function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void }) {
+function Feedback({
+  result,
+  question,
+  onNext,
+  onDislike,
+}: {
+  result: AnswerResult;
+  question: Question;
+  onNext: () => void;
+  onDislike: (level: number) => void;
+}) {
   const correct = result.isCorrect;
+  // При успехе в заголовке — тот перевод, который засчитали, а не всегда первый из словаря.
+  const shownAnswer = correct && result.matched ? result.matched : result.correctAnswer;
+  const heading =
+    question.direction === 'ru_en'
+      ? `${question.prompt} — ${shownAnswer}`
+      : `${result.word.text} — ${shownAnswer}`;
+  const alsoFits = result.allAnswers.filter((item) => item !== shownAnswer);
 
   return (
     <div>
@@ -428,12 +505,19 @@ function Feedback({ result, onNext }: { result: AnswerResult; onNext: () => void
                   ? 'Не знаю'
                   : 'Неверно'}
             </p>
-            <p className="word-display text-ink mt-2 text-[26px] leading-tight font-semibold">
-              {result.word.text} — {result.correctAnswer}
-            </p>
-            {result.allAnswers.length > 1 ? (
+            <div className="mt-2 flex items-start gap-2">
+              <p className="word-display text-ink min-w-0 text-[26px] leading-tight font-semibold">{heading}</p>
+              <DislikeButton
+                wordId={result.word.id}
+                level={result.wordProgress.dislikeLevel ?? 0}
+                onChange={onDislike}
+                size="sm"
+                className="mt-0.5"
+              />
+            </div>
+            {alsoFits.length > 0 ? (
               <p className="text-soft mt-1.5 text-[13px]">
-                Также подходит: {result.allAnswers.filter((item) => item !== result.correctAnswer).join(', ')}
+                Также подходит: {alsoFits.join(', ')}
               </p>
             ) : null}
             {result.word.gloss ? <p className="text-faint mt-2 text-[13px] italic">{result.word.gloss}</p> : null}

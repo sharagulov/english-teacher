@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
+import { DislikeButton } from '../components/DislikeButton';
 import {
   Badge,
   Button,
@@ -326,9 +327,20 @@ function WordModal({
         <div>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="word-display text-ink text-[34px] leading-tight font-semibold tracking-tight">
-                {word.text}
-              </p>
+              <div className="flex items-start gap-2.5">
+                <p className="word-display text-ink text-[34px] leading-tight font-semibold tracking-tight">
+                  {word.text}
+                </p>
+                <DislikeButton
+                  wordId={id}
+                  level={progress?.dislikeLevel ?? 0}
+                  onChange={() => {
+                    detail.reload();
+                    onChanged();
+                  }}
+                  className="mt-1.5"
+                />
+              </div>
               <div className="mt-1.5 flex items-center gap-3">
                 {word.transcription ? <span className="text-faint text-[14px]">{word.transcription}</span> : null}
                 <button

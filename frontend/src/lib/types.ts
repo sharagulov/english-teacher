@@ -49,6 +49,8 @@ export interface Question {
   answerLength: number;
   attemptsSoFar: number;
   isRetry: boolean;
+  /** 0 — обычная выдача, 1 — реже, 2 — почти не показывать. */
+  dislikeLevel: number;
 }
 
 export interface PoolState {
@@ -95,7 +97,14 @@ export interface AnswerResult {
   matched: string | null;
   reward: { points: number; breakdown: { label: string; value: string }[] };
   sessionStreak: number;
-  wordProgress: { status: WordStatus; strength: number; timesSeen: number; timesCorrect: number; timesWrong: number };
+  wordProgress: {
+    status: WordStatus;
+    strength: number;
+    timesSeen: number;
+    timesCorrect: number;
+    timesWrong: number;
+    dislikeLevel: number;
+  };
   rating: Rating;
   poolCompleted: boolean;
   poolSummary?: {
@@ -219,6 +228,7 @@ export interface WordRow {
   dueAt: string;
   isFavorite: boolean;
   isIgnored: boolean;
+  dislikeLevel: number;
 }
 
 export interface Breakdown {
@@ -246,6 +256,7 @@ export interface DictionaryWord {
     timesWrong: number;
     isFavorite: boolean;
     isIgnored: boolean;
+    dislikeLevel: number;
   } | null;
 }
 
@@ -354,6 +365,30 @@ export interface RewardsOverview {
   maxStreakFreezes: number;
   freezeGrantEvery: number;
   items: LevelRewardItem[];
+}
+
+export interface AiUsageSlice {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  costRub: number;
+  requests: number;
+}
+
+export interface AiUsageOverview {
+  enabled: boolean;
+  model: string | null;
+  pricing: {
+    model: string;
+    inputUsdPerM: number;
+    outputUsdPerM: number;
+    usdRubRate: number;
+  };
+  monthReferenceUsd: number;
+  allTime: AiUsageSlice;
+  month: AiUsageSlice;
+  today: AiUsageSlice;
 }
 
 export interface ChatMessage {

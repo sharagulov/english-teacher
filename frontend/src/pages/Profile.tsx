@@ -15,8 +15,8 @@ import {
   cx,
 } from '../components/ui';
 import { ApiError, api } from '../lib/api';
-import { formatDate, formatNumber, plural } from '../lib/format';
-import type { CefrLevel } from '../lib/types';
+import { formatDate, formatNumber, formatRub, formatUsd, plural } from '../lib/format';
+import type { AiUsageOverview, CefrLevel } from '../lib/types';
 import { useAsync } from '../lib/useAsync';
 import { useAuth } from '../store/auth';
 import { THEME_UNLOCK_LEVEL, useUi } from '../store/ui';
@@ -43,6 +43,7 @@ export function Profile() {
 
   const health = useAsync(() => api.health(), []);
   const rewards = useAsync(() => api.rewards.list(), []);
+  const aiUsage = useAsync(() => api.stats.aiUsage(), []);
 
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
@@ -120,7 +121,7 @@ export function Profile() {
             <div className="space-y-1">
               <Toggle
                 label="Прощать опечатки"
-                description="Ответ с одной опечаткой считается верным, но награда снижается."
+                description="До двух опечаток в слове засчитываются как верный ответ (в коротких — не больше одной), но награда снижается."
                 checked={user.typoTolerance}
                 onChange={(value) => void save({ typoTolerance: value }, true)}
               />
@@ -138,6 +139,8 @@ export function Profile() {
               />
             </div>
           </Card>
+
+          <AiUsageSection data={aiUsage.data} loading={aiUsage.loading} />
 
           {/* ─── Оформление ─── */}
           <Card>
@@ -258,6 +261,84 @@ export function Profile() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function AiUsageSection({ data, loading }: { data: AiUsageOverview | null; loading: boolean }) {
+  if (loading && !data) {
+    return (
+      <Card>
+        <SectionTitle title="Расход на нейросети" />
+        <Loading label="" />
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const { allTime, month, today, pricing, monthReferenceUsd } = data;
+  const inputShare = allTime.totalTokens > 0 ? allTime.inputTokens / allTime.totalTokens : 0.5;
+  const monthCostRatio = monthReferenceUsd > 0 ? month.costUsd / monthReferenceUsd : 0;
+
+  return (
+    <Card>
+      <SectionTitle
+        title="Расход на нейросети"
+        description={
+          data.enabled && data.model
+            ? `Оценка по тарифам ${data.model}: $${pricing.inputUsdPerM} / $${pricing.outputUsdPerM} за 1 млн токенов (вход / выход)`
+            : 'ИИ выключен — расход появится после первых заданий с ключом OpenAI'
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Stat
+          label="Всего потрачено"
+          value={formatUsd(allTime.costUsd)}
+          hint={`≈ ${formatRub(allTime.costRub)} · курс ${pricing.usdRubRate} ₽/$`}
+          tone={allTime.costUsd > 0 ? 'accent' : undefined}
+        />
+        <Stat
+          label="За этот месяц"
+          value={formatUsd(month.costUsd)}
+          hint={`сегодня ${formatUsd(today.costUsd)} · ${formatNumber(allTime.requests)} ${plural(allTime.requests, 'запрос', 'запроса', 'запросов')}`}
+        />
+      </div>
+
+      <div className="mt-5 space-y-4">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[12px]">
+            <span className="text-soft">Токены за всё время</span>
+            <span className="text-faint tabular-nums">{formatNumber(allTime.totalTokens)}</span>
+          </div>
+          <div className="bg-sunken flex h-2 overflow-hidden rounded-full">
+            <div className="bg-ink h-full transition-[width] duration-500" style={{ width: `${inputShare * 100}%` }} />
+            <div className="bg-accent h-full transition-[width] duration-500" style={{ width: `${(1 - inputShare) * 100}%` }} />
+          </div>
+          <div className="text-faint mt-1.5 flex justify-between text-[11px] tabular-nums">
+            <span>вход {formatNumber(allTime.inputTokens)}</span>
+            <span>выход {formatNumber(allTime.outputTokens)}</span>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[12px]">
+            <span className="text-soft">Расход за месяц</span>
+            <span className="text-faint tabular-nums">
+              {formatUsd(month.costUsd)} / ~{formatUsd(monthReferenceUsd)}
+            </span>
+          </div>
+          <Progress value={Math.min(monthCostRatio, 1)} tone="accent" />
+          <p className="text-faint mt-1.5 text-[11px] leading-relaxed">
+            Шкала ориентировочная (~{formatUsd(monthReferenceUsd)} в месяц), не лимит аккаунта.
+          </p>
+        </div>
+      </div>
+
+      {allTime.totalTokens === 0 ? (
+        <p className="text-soft mt-4 text-[13px]">Пока нет данных — выполните задание ИИ или поговорите с репетитором.</p>
+      ) : null}
+    </Card>
   );
 }
 

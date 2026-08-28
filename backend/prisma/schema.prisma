@@ -40,6 +40,12 @@ model User {
   showTranscript Boolean @default(true)
   timezoneOffset Int     @default(180) // минуты от UTC, для корректных «дней»
 
+  // Суммарный расход на OpenAI (оценка по тарифам модели)
+  aiInputTokens  Int   @default(0)
+  aiOutputTokens Int   @default(0)
+  aiCostUsd      Float @default(0)
+  aiRequests     Int   @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -160,6 +166,8 @@ model UserWord {
   dueAt          DateTime  @default(now())
   isFavorite     Boolean   @default(false)
   isIgnored      Boolean   @default(false)
+  // 0 — обычная выдача, 1 — реже в пуллах, 2 — почти не показывать
+  dislikeLevel   Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -294,8 +302,11 @@ model DailyStat {
   mastered   Int @default(0)
   points     Int @default(0)
   timeMs     Int @default(0)
-  aiTasks    Int @default(0)
-  poolsDone  Int @default(0)
+  aiTasks        Int   @default(0)
+  aiInputTokens  Int   @default(0)
+  aiOutputTokens Int   @default(0)
+  aiCostUsd      Float @default(0)
+  poolsDone      Int   @default(0)
 
   @@unique([userId, day])
   @@index([userId, day])

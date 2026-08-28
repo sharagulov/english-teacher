@@ -3,6 +3,7 @@ import type {
   AiResult,
   AiTask,
   AiTaskType,
+  AiUsageOverview,
   AnswerResult,
   Breakdown,
   CefrLevel,
@@ -142,6 +143,8 @@ export const api = {
       ),
     setFlags: (id: number, body: { isFavorite?: boolean; isIgnored?: boolean }) =>
       request<unknown>('PATCH', `/words/${id}/flags`, body),
+    dislike: (id: number, body?: { level?: number }) =>
+      request<{ dislikeLevel: number }>('POST', `/words/${id}/dislike`, body ?? {}),
     reset: (id: number) => request<{ ok: boolean }>('POST', `/words/${id}/reset`),
     addCustom: (body: { text: string; translations: string[]; level: CefrLevel; partOfSpeech?: string; topic?: string; gloss?: string }) =>
       request<{ wordId: number }>('POST', '/words/custom', body),
@@ -190,6 +193,7 @@ export const api = {
           completedAt: string | null;
         }[];
       }>('GET', `/stats/pools?limit=${limit}`),
+    aiUsage: () => request<AiUsageOverview>('GET', '/stats/ai-usage'),
   },
 
   rewards: {

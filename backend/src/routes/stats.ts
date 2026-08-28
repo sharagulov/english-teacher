@@ -6,6 +6,7 @@ import { levelProgress } from '../lib/economy.js';
 import { CEFR_LEVELS } from '../lib/levels.js';
 import { parseStringArray } from '../lib/text.js';
 import { listAchievements } from '../services/progress.js';
+import { getAiUsageOverview } from '../services/ai-usage.js';
 
 const WORD_STATUSES = ['new', 'learning', 'review', 'mastered', 'leech'] as const;
 
@@ -223,6 +224,7 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
         dueAt: row.dueAt,
         isFavorite: row.isFavorite,
         isIgnored: row.isIgnored,
+        dislikeLevel: row.dislikeLevel,
       })),
     };
   });
@@ -377,6 +379,9 @@ const statsRoutes: FastifyPluginAsync = async (app) => {
     });
     return { items };
   });
+
+  /** Расход токенов и оценка стоимости вызовов OpenAI. */
+  app.get('/ai-usage', async (request) => getAiUsageOverview(request.userId));
 };
 
 export default statsRoutes;

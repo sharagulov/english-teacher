@@ -79,12 +79,13 @@ export function levenshtein(a: string, b: string, limit = Infinity): number {
 }
 
 /**
- * Сколько опечаток прощаем в слове данной длины.
- * Короткие слова — строго, иначе «дом»/«том» зачтётся как верный ответ.
+ * Сколько опечаток прощаем (расстояние Левенштейна).
+ * Не больше двух, и не больше ~половины слова: 1–2 буквы — строго,
+ * 3–4 буквы — одна опечатка, 5+ — две.
  */
 export function typoBudget(length: number): number {
-  if (length <= 4) return 0;
-  if (length <= 8) return 1;
+  if (length <= 2) return 0;
+  if (length <= 4) return 1;
   return 2;
 }
 
@@ -100,7 +101,7 @@ export interface MatchResult {
 }
 
 export interface MatchOptions {
-  /** Разрешить зачёт ответа с одной-двумя опечатками. */
+  /** Разрешить зачёт ответа с опечаткой (см. typoBudget). */
   allowTypos?: boolean;
   /** Английская сторона: снимать «to»/артикли. */
   english?: boolean;

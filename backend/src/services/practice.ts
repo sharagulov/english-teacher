@@ -32,6 +32,15 @@ import { matchAnswer, parseStringArray, type MatchType } from '../lib/text.js';
 import { examplesForWord, prefetchExamples, type WordExampleView } from './examples.js';
 import { awardPoints, bumpDailyStat, checkDailyGoal, grantAchievements, registerDailyActivity, type UnlockedAchievement } from './progress.js';
 
+/** Множитель веса в пулле по dislikeLevel: 0 — как обычно, 1 — реже, 2 — почти никогда. */
+const DISLIKE_WEIGHT = [1, 0.2, 0.02] as const;
+
+export function dislikeWeight(level: number): number {
+  if (level <= 0) return DISLIKE_WEIGHT[0];
+  if (level >= 2) return DISLIKE_WEIGHT[2];
+  return DISLIKE_WEIGHT[1];
+}
+
 /** Доля новых слов в пулле для каждого режима. */
 const NEW_WORD_RATIO: Record<PracticeMode, number> = {
   classic: 0.75,
@@ -165,7 +174,11 @@ async function selectReviewWords(
   }
 
   const candidates = [...merged.values()];
-  return weightedSample(candidates, limit, (c) => Math.max(c.priority, 0.1) ** 1.5);
+  const preferred = candidates.filter((c) => c.userWord.dislikeLevel < 2);
+  const rare = candidates.filter((c) => c.userWord.dislikeLevel >= 2);
+  // Уровень 2 почти не берём: только если иначе пулл недоберётся.
+  const eligible = preferred.length >= limit ? preferred : [...preferred, ...rare];
+  return weightedSample(eligible, limit, (c) => Math.max(c.priority, 0.1) ** 1.5 * dislikeWeight(c.userWord.dislikeLevel));
 }
 
 /** Собирает состав пулла под выбранный режим. */
@@ -271,6 +284,8 @@ export interface Question {
   attemptsSoFar: number;
   /** Слово уже встречалось в этом пулле и было отвечено неверно. */
   isRetry: boolean;
+  /** 0 — обычная выдача, 1 — реже, 2 — почти не показывать. */
+  dislikeLevel: number;
 }
 
 export interface PoolState {
@@ -350,6 +365,14 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
     const prompt = direction === 'en_ru' || direction === 'audio_en' ? word.text : primaryTranslation(word);
     const answers = expectedAnswers(word, direction);
 
+    const [choices, progressRow] = await Promise.all([
+      mode === 'choice' ? buildChoices(word, direction) : Promise.resolve(undefined),
+      prisma.userWord.findUnique({
+        where: { userId_wordId: { userId, wordId: word.id } },
+        select: { dislikeLevel: true },
+      }),
+    ]);
+
     question = {
       wordId: word.id,
       prompt,
@@ -360,7 +383,8 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
       answerLength: answers[0]?.length ?? 0,
       attemptsSoFar: item.attempts,
       isRetry: item.wrongCount > 0,
-      ...(mode === 'choice' ? { choices: await buildChoices(word, direction) } : {}),
+      dislikeLevel: progressRow?.dislikeLevel ?? 0,
+      ...(choices ? { choices } : {}),
     };
 
     await prisma.poolItem.update({ where: { id: item.id }, data: { lastShownAt: new Date() } });
@@ -404,7 +428,14 @@ export interface AnswerResult {
   matched: string | null;
   reward: { points: number; breakdown: { label: string; value: string }[] };
   sessionStreak: number;
-  wordProgress: { status: string; strength: number; timesSeen: number; timesCorrect: number; timesWrong: number };
+  wordProgress: {
+    status: string;
+    strength: number;
+    timesSeen: number;
+    timesCorrect: number;
+    timesWrong: number;
+    dislikeLevel: number;
+  };
   /** Рейтинг и уровень после начисления — интерфейс обновляет их без лишнего запроса. */
   rating: { points: number; level: number; leveledUp: boolean; freezesGranted: number; progress: LevelProgress };
   poolCompleted: boolean;
@@ -678,6 +709,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       timesSeen: nextState.timesSeen,
       timesCorrect: nextState.timesCorrect,
       timesWrong: nextState.timesWrong,
+      dislikeLevel: existing?.dislikeLevel ?? 0,
     },
     rating: { points: award.total, level: award.level, leveledUp, freezesGranted, progress: levelProgress(award.total) },
     poolCompleted: remaining === 0,

@@ -101,6 +101,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `hint — короткая подсказка по-русски о грамматике или лексике этого предложения; ` +
             `keyWords — 2–4 ключевых слова, на которые стоит обратить внимание.`,
           responseFormat: SCHEMAS.sentence,
+          userId: input.userId,
         },
         sentenceTaskSchema,
       );
@@ -124,6 +125,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `correctIndex — индекс верного варианта с нуля.`,
           responseFormat: SCHEMAS.grammarQuiz,
           temperature: 0.9,
+          userId: input.userId,
         },
         grammarQuizSchema,
       );
@@ -158,6 +160,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `answer — слово в правильной форме; acceptable — другие допустимые формы или синонимы; ` +
             `translation — перевод всего предложения на русский; explanation — почему подходит именно это слово.`,
           responseFormat: SCHEMAS.cloze,
+          userId: input.userId,
         },
         clozeSchema,
       );
@@ -179,6 +182,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `\n\nsentence — сама фраза на английском; referenceTranslation — её перевод на русский; ` +
             `hint — подсказка по-русски о том, что в ней сложно услышать; keyWords — 2–3 ключевых слова.`,
           responseFormat: SCHEMAS.sentence,
+          userId: input.userId,
         },
         sentenceTaskSchema,
       );
@@ -200,6 +204,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `minWords — минимальный объём (от 40 до 120 слов); ` +
             `checklist — 3–4 пункта по-русски, что обязательно нужно использовать в тексте.`,
           responseFormat: SCHEMAS.writingPrompt,
+          userId: input.userId,
         },
         writingPromptSchema,
       );
@@ -229,6 +234,7 @@ export async function generateTask(input: GenerateTaskInput): Promise<GeneratedT
             `mnemonic — способ запомнить слово, привязанный к русскому языку.`,
           responseFormat: SCHEMAS.wordDeepDive,
           temperature: 0.7,
+          userId: input.userId,
         },
         wordDeepDiveSchema,
       );
@@ -350,6 +356,7 @@ export async function submitTask(userId: string, taskId: string, answer: string)
         responseFormat: SCHEMAS.grading,
         temperature: 0.3,
         maxTokens: 1200,
+        userId,
       },
       gradingSchema,
     );
@@ -487,6 +494,7 @@ export async function chatTurn(userId: string, sessionId: string, message: strin
         `tip — короткий совет по-русски, как сказать это естественнее, иначе пустая строка.`,
       responseFormat: SCHEMAS.chatReply,
       temperature: 0.9,
+      userId,
     },
     chatReplySchema,
   );

@@ -8,6 +8,7 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { env } from '../env.js';
+import { recordAiUsage } from '../services/ai-usage.js';
 
 let client: OpenAI | null = null;
 
@@ -291,6 +292,8 @@ export interface AskOptions {
   responseFormat: ReturnType<typeof schema>;
   temperature?: number;
   maxTokens?: number;
+  /** Если задан — расход токенов пишется в профиль пользователя. */
+  userId?: string;
 }
 
 /** Единая точка вызова модели с разбором JSON-ответа заданной схемой. */
@@ -309,6 +312,15 @@ export async function ask<T>(options: AskOptions, parser: z.ZodType<T>): Promise
   const content = completion.choices[0]?.message?.content;
   if (!content) {
     throw Object.assign(new Error('Модель вернула пустой ответ'), { statusCode: 502 });
+  }
+
+  if (options.userId && completion.usage) {
+    void recordAiUsage(options.userId, {
+      inputTokens: completion.usage.prompt_tokens ?? 0,
+      outputTokens: completion.usage.completion_tokens ?? 0,
+    }).catch(() => {
+      // Сбой учёта не должен ломать ответ пользователю.
+    });
   }
 
   let json: unknown;

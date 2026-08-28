@@ -71,6 +71,7 @@ const wordRoutes: FastifyPluginAsync = async (app) => {
                 timesWrong: progress.timesWrong,
                 isFavorite: progress.isFavorite,
                 isIgnored: progress.isIgnored,
+                dislikeLevel: progress.dislikeLevel,
               }
             : null,
         };
@@ -175,6 +176,31 @@ const wordRoutes: FastifyPluginAsync = async (app) => {
       update: parsed.data,
     });
     return { progress };
+  });
+
+  /** Отметка «не нравится»: 0 → 1 (реже) → 2 (почти не показывать). */
+  app.post('/:id/dislike', async (request, reply) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    const parsed = z.object({ level: z.number().int().min(0).max(2).optional() }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'Некорректный уровень отметки' });
+
+    const exists = await prisma.word.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'Слово не найдено' });
+
+    const current = await prisma.userWord.findUnique({
+      where: { userId_wordId: { userId: request.userId, wordId: id } },
+      select: { dislikeLevel: true },
+    });
+
+    const next = parsed.data.level ?? Math.min(2, (current?.dislikeLevel ?? 0) + 1);
+
+    const progress = await prisma.userWord.upsert({
+      where: { userId_wordId: { userId: request.userId, wordId: id } },
+      create: { userId: request.userId, wordId: id, dislikeLevel: next },
+      update: { dislikeLevel: next },
+    });
+
+    return { dislikeLevel: progress.dislikeLevel };
   });
 
   /** Сброс прогресса по слову — начать его изучение заново. */
