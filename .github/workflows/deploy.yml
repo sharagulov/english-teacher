@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches: [release-server]
+  workflow_dispatch:
+
+concurrency:
+  group: production-vps
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./prisma/ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run db:generate --workspace backend
+      - run: npm run typecheck
+      - run: npm run build
+
+  deploy:
+    name: SSH to VPS
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.DEPLOY_PATH }}"
+            APP_DIR="${APP_DIR:-/opt/lexio}"
+            cd "$APP_DIR"
+            bash scripts/deploy.sh

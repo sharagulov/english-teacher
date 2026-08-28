@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master, release-server]
+
+jobs:
+  check:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./prisma/ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace backend
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build

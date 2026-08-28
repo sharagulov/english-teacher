@@ -15,6 +15,7 @@ coverage/
 *.db-journal
 *.db-wal
 *.db-shm
+backend/prisma/backups/
 
 # logs
 *.log

@@ -142,12 +142,61 @@ frontend/           Vite 8 + React 19 + Tailwind 4
 
 ## Развёртывание
 
+Локально:
+
 ```bash
 npm run build
 npm start          # Fastify отдаёт API и собранный фронтенд с одного порта
 ```
 
-База — обычный файл SQLite, для резервной копии достаточно скопировать
-`backend/prisma/dev.db`. При переезде на PostgreSQL меняется `provider` в
-`prisma/schema.prisma` и адаптер в `src/db.ts`; поля, где SQLite вынуждал хранить
-списки строками JSON, можно перевести в нативные массивы.
+База — файл SQLite; для резервной копии скопируйте `backend/prisma/dev.db`.
+
+### CI/CD на VPS
+
+Пуш в ветку `release-server` гоняет проверку типов и сборку, затем по SSH
+обновляет сервер: `git pull`, `npm ci`, Prisma, сборка, `systemctl restart lexio`.
+Словарь заново не импортируется, `.env` и база на сервере не перезаписываются.
+Перед обновлением схемы копируется `backend/prisma/dev.db` в `backend/prisma/backups/`.
+
+**1. Секреты в GitHub** → Settings → Secrets and variables → Actions:
+
+| Секрет | Что положить |
+| --- | --- |
+| `SSH_HOST` | IP или домен VPS |
+| `SSH_USER` | пользователь деплоя, например `lexio` |
+| `SSH_PRIVATE_KEY` | целиком приватный ключ (`-----BEGIN OPENSSH PRIVATE KEY-----` …) |
+| `SSH_PORT` | необязательно, по умолчанию `22` |
+| `DEPLOY_PATH` | необязательно, по умолчанию `/opt/lexio` |
+
+Ключ лучше отдельный, не ваш личный. На сервере публичная часть — в
+`~lexio/.ssh/authorized_keys`.
+
+**2. Первый раз на Ubuntu 22.04/24.04** (от root):
+
+```bash
+git clone https://github.com/sharagulov/english-teacher.git /opt/lexio
+cd /opt/lexio
+sudo bash scripts/server-setup.sh
+# отредактируйте /opt/lexio/backend/.env (JWT_SECRET, CORS_ORIGIN, OPENAI_API_KEY)
+# если setup остановился на .env — повторите:
+sudo bash scripts/server-setup.sh
+sudo usermod -s /bin/bash lexio
+```
+
+Пользователю `lexio` нужен bash, чтобы GitHub Actions мог зайти по SSH.
+Сервис слушает порт 4000; снаружи удобнее nginx (`deploy/nginx.example.conf`) и
+Let's Encrypt.
+
+**3. Ветка деплоя.** Когда секреты и сервис на месте:
+
+```bash
+git checkout -b release-server
+git push -u origin release-server
+```
+
+Дальше: мержите в `release-server` (или пушите туда) — уйдёт выкладка.
+Вручную: Actions → Deploy → Run workflow.
+
+При переезде на PostgreSQL меняется `provider` в `prisma/schema.prisma` и адаптер
+в `src/db.ts`; поля, где SQLite вынуждал хранить списки строками JSON, можно
+перевести в нативные массивы.

@@ -1,0 +1,24 @@
+[Unit]
+Description=Lexio English trainer
+After=network.target
+
+[Service]
+Type=simple
+User=lexio
+Group=lexio
+WorkingDirectory=/opt/lexio/backend
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/lexio/backend/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+# Процесс слушает только localhost, если снаружи стоит nginx.
+# HOST=0.0.0.0 в .env — если nginx нет и открываете порт напрямую.
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
