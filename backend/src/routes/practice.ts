@@ -7,7 +7,7 @@ import {
   PRACTICE_MODES,
 } from '../lib/economy.js';
 import { CEFR_LEVELS, levelsUpTo } from '../lib/levels.js';
-import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer } from '../services/practice.js';
+import { abandonPool, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, undoLastWrongAnswer } from '../services/practice.js';
 
 const poolBody = z.object({
   mode: z.enum(PRACTICE_MODES as [string, ...string[]]).default('classic'),
@@ -24,6 +24,10 @@ const answerBody = z.object({
   hintsUsed: z.number().int().min(0).max(4).default(0),
   /** Отказ от ответа: показать перевод и засчитать как промах, без подбора варианта. */
   gaveUp: z.boolean().optional(),
+});
+
+const undoBody = z.object({
+  wordId: z.number().int().positive(),
 });
 
 const practiceRoutes: FastifyPluginAsync = async (app) => {
@@ -109,6 +113,23 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
     const result = await submitAnswer({ userId: request.userId, poolId: id, ...parsed.data });
     const state = await getPoolState(request.userId, id);
     return { result, state };
+  });
+
+  app.post('/pools/:id/undo', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = undoBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Некорректный запрос отмены' });
+    }
+
+    try {
+      const { state, undo } = await undoLastWrongAnswer(request.userId, id, parsed.data.wordId);
+      return { state, undo };
+    } catch (cause) {
+      const statusCode = cause && typeof cause === 'object' && 'statusCode' in cause ? Number(cause.statusCode) : 500;
+      const message = cause instanceof Error ? cause.message : 'Не удалось отменить ответ';
+      return reply.code(statusCode).send({ error: message });
+    }
   });
 
   app.post('/pools/:id/abandon', async (request) => {

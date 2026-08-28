@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleHelp } from 'lucide-react';
+import { ArrowLeft, CircleHelp, Volume2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
@@ -36,6 +36,7 @@ export function Session() {
   const [answer, setAnswer] = useState('');
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [sending, setSending] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [finished, setFinished] = useState<AnswerResult['poolSummary'] | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +163,31 @@ export function Session() {
     [poolId, question, sending, patchUser, notify],
   );
 
+  const undo = useCallback(async () => {
+    if (!poolId || !question || undoing || sending) return;
+
+    setUndoing(true);
+    try {
+      const response = await api.practice.undo(poolId, { wordId: question.wordId });
+      setState(response.state);
+      setPending(null);
+      setResult(null);
+      setFinished(null);
+      patchUser({
+        points: response.undo.rating.points,
+        level: response.undo.rating.level,
+        progress: response.undo.rating.progress,
+      });
+    } catch (cause) {
+      notify({
+        title: cause instanceof ApiError ? cause.message : 'Не удалось отменить ответ',
+        tone: 'danger',
+      });
+    } finally {
+      setUndoing(false);
+    }
+  }, [poolId, question, undoing, sending, patchUser, notify]);
+
   // ─── Клавиатура ───
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -172,6 +198,7 @@ export function Session() {
         return;
       }
       if (phase === 'feedback') {
+        if (undoing) return;
         // Разбор держим на экране, пока пользователь сам не нажмёт клавишу.
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(event.key)) return;
@@ -197,7 +224,7 @@ export function Session() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [phase, question, answer, advance, submit]);
+  }, [phase, question, answer, advance, submit, undoing]);
 
   if (loadError) {
     return (
@@ -266,7 +293,7 @@ export function Session() {
 
         <Prompt
           question={question}
-          showDislike={phase === 'question' && question.direction !== 'audio_en'}
+          showDislike={question.direction !== 'audio_en'}
           onDislike={(level) => applyDislike(question.wordId, level)}
         />
 
@@ -285,7 +312,8 @@ export function Session() {
             result={result}
             question={question}
             onNext={advance}
-            onDislike={(level) => applyDislike(result.word.id, level)}
+            onUndo={() => void undo()}
+            undoing={undoing}
           />
         ) : null}
       </div>
@@ -305,6 +333,8 @@ function Prompt({
   onDislike: (level: number) => void;
 }) {
   const isAudio = question.direction === 'audio_en';
+  const showListen = question.direction === 'en_ru' && speechSupported();
+  const showActions = showListen || showDislike;
 
   return (
     <div className="mb-8">
@@ -330,31 +360,34 @@ function Prompt({
         </div>
       ) : (
         <>
-          <div className="flex items-start gap-2.5">
-            <p className="word-display text-ink min-w-0 text-[44px] leading-tight font-semibold tracking-tight sm:text-[56px]">
-              {question.prompt}
-            </p>
-            {showDislike ? (
-              <DislikeButton
-                wordId={question.wordId}
-                level={question.dislikeLevel ?? 0}
-                onChange={onDislike}
-                className="mt-2.5 sm:mt-3.5"
-              />
-            ) : null}
-          </div>
-          <div className="mt-2 flex items-center gap-3">
-            {question.transcription ? <p className="text-faint text-[15px]">{question.transcription}</p> : null}
-            {question.direction === 'en_ru' && speechSupported() ? (
-              <button
-                type="button"
-                onClick={() => speak(question.prompt)}
-                className="text-faint hover:text-ink text-[13px] transition-colors"
-              >
-                Прослушать
-              </button>
-            ) : null}
-          </div>
+          <p className="word-display text-ink min-w-0 text-[44px] leading-tight font-semibold tracking-tight sm:text-[56px]">
+            {question.prompt}
+          </p>
+          {question.transcription ? (
+            <p className="text-faint mt-2 text-[15px]">{question.transcription}</p>
+          ) : null}
+          {showActions ? (
+            <div className="mt-3 flex items-center gap-2">
+              {showListen ? (
+                <button
+                  type="button"
+                  onClick={() => speak(question.prompt)}
+                  title="Прослушать"
+                  aria-label="Прослушать"
+                  className="text-faint hover:bg-sunken hover:text-ink inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-150"
+                >
+                  <Volume2 size={17} strokeWidth={1.75} aria-hidden="true" />
+                </button>
+              ) : null}
+              {showDislike ? (
+                <DislikeButton
+                  wordId={question.wordId}
+                  level={question.dislikeLevel ?? 0}
+                  onChange={onDislike}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
 
@@ -451,7 +484,7 @@ function QuestionForm({
 
       {!choices || choices.length === 0 ? (
         <div className="mt-4 flex items-center gap-3">
-          <Button variant="ghost" size="md" disabled={sending} onClick={onGiveUp}>
+          <Button variant="secondary" size="md" disabled={sending} onClick={onGiveUp}>
             <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
             Не знаю
           </Button>
@@ -470,14 +503,17 @@ function Feedback({
   result,
   question,
   onNext,
-  onDislike,
+  onUndo,
+  undoing,
 }: {
   result: AnswerResult;
   question: Question;
   onNext: () => void;
-  onDislike: (level: number) => void;
+  onUndo: () => void;
+  undoing: boolean;
 }) {
   const correct = result.isCorrect;
+  const showUndo = !correct && result.matchType !== 'skipped' && result.canUndo !== false;
   // При успехе в заголовке — тот перевод, который засчитали, а не всегда первый из словаря.
   const shownAnswer = correct && result.matched ? result.matched : result.correctAnswer;
   const heading =
@@ -505,16 +541,7 @@ function Feedback({
                   ? 'Не знаю'
                   : 'Неверно'}
             </p>
-            <div className="mt-2 flex items-start gap-2">
-              <p className="word-display text-ink min-w-0 text-[26px] leading-tight font-semibold">{heading}</p>
-              <DislikeButton
-                wordId={result.word.id}
-                level={result.wordProgress.dislikeLevel ?? 0}
-                onChange={onDislike}
-                size="sm"
-                className="mt-0.5"
-              />
-            </div>
+            <p className="word-display text-ink mt-2 min-w-0 text-[26px] leading-tight font-semibold">{heading}</p>
             {alsoFits.length > 0 ? (
               <p className="text-soft mt-1.5 text-[13px]">
                 Также подходит: {alsoFits.join(', ')}
@@ -554,15 +581,27 @@ function Feedback({
       <Examples word={result.word} />
 
       <div className="mt-6 flex items-center gap-4">
-        <Button variant="primary" size="lg" onClick={onNext} autoFocus>
+        <Button variant="primary" size="lg" onClick={onNext} autoFocus disabled={undoing}>
           Дальше
         </Button>
         <span className="text-faint text-[12px]">
           <Kbd>Enter</Kbd> или любая клавиша — продолжить
         </span>
-        <span className="text-faint ml-auto text-[12px]">
-          сила слова {formatPercent(result.wordProgress.strength)}
-        </span>
+        <div className="ml-auto flex items-center gap-3">
+          {showUndo ? (
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={undoing}
+              className="text-faint hover:text-ink text-[12px] transition-colors disabled:opacity-50"
+            >
+              {undoing ? 'Отмена…' : 'Отмена'}
+            </button>
+          ) : null}
+          <span className="text-faint text-[12px]">
+            сила слова {formatPercent(result.wordProgress.strength)}
+          </span>
+        </div>
       </div>
     </div>
   );

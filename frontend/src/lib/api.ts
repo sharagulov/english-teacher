@@ -117,6 +117,8 @@ export const api = {
     pool: (id: string) => request<PoolState>('GET', `/practice/pools/${id}`),
     answer: (id: string, body: { wordId: number; answer: string; responseMs: number; hintsUsed: number; gaveUp?: boolean }) =>
       request<{ result: AnswerResult; state: PoolState }>('POST', `/practice/pools/${id}/answer`, body),
+    undo: (id: string, body: { wordId: number }) =>
+      request<{ state: PoolState; undo: { rating: Pick<User, 'points' | 'level' | 'progress'> } }>('POST', `/practice/pools/${id}/undo`, body),
     abandon: (id: string) => request<{ ok: boolean }>('POST', `/practice/pools/${id}/abandon`),
   },
 

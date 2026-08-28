@@ -14,6 +14,7 @@ import { todayKey } from '../lib/day.js';
 import {
   MODE_MULTIPLIER,
   computeReward,
+  levelFromPoints,
   levelProgress,
   poolCompletionReward,
   type LevelProgress,
@@ -451,6 +452,53 @@ export interface AnswerResult {
     examples: WordExampleView[];
     level: string;
   };
+  /** Можно отменить неверный ответ, пока не перешли к следующему слову. */
+  canUndo?: boolean;
+}
+
+/** Снимок для отката неверного ответа — хранится в Attempt.undoSnapshot. */
+interface UndoSnapshot {
+  poolItem: { attempts: number; wrongCount: number; position: number };
+  pool: { wrongCount: number; pointsEarned: number; durationMs: number };
+  userWord: {
+    existed: boolean;
+    data: {
+      timesSeen: number;
+      timesCorrect: number;
+      timesWrong: number;
+      currentStreak: number;
+      bestStreak: number;
+      ease: number;
+      intervalDays: number;
+      repetitions: number;
+      lapses: number;
+      status: string;
+      strength: number;
+      hintsUsed: number;
+      avgResponseMs: number;
+      lastResult: boolean | null;
+      lastSeenAt: string | null;
+      firstSeenAt: string | null;
+      learnedAt: string | null;
+      masteredAt: string | null;
+      dueAt: string;
+    } | null;
+  };
+  dailyStat: {
+    attempts: number;
+    wrong: number;
+    newWords: number;
+    learned: number;
+    mastered: number;
+    points: number;
+    timeMs: number;
+  };
+  pointsAwarded: number;
+  transactionId: number | null;
+}
+
+export interface UndoResult {
+  rating: { points: number; level: number; progress: LevelProgress };
 }
 
 export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResult> {
@@ -526,6 +574,53 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     ? Math.round((existing.avgResponseMs * existing.timesSeen + input.responseMs) / (existing.timesSeen + 1))
     : input.responseMs;
 
+  const responseMsCapped = Math.min(input.responseMs, 120_000);
+  const canUndo = !match.isCorrect && match.matchType !== 'skipped';
+
+  const undoSnapshot: UndoSnapshot | null = canUndo
+    ? {
+        poolItem: { attempts: item.attempts, wrongCount: item.wrongCount, position: item.position },
+        pool: { wrongCount: pool.wrongCount, pointsEarned: pool.pointsEarned, durationMs: pool.durationMs },
+        userWord: {
+          existed: existing != null,
+          data: existing
+            ? {
+                timesSeen: existing.timesSeen,
+                timesCorrect: existing.timesCorrect,
+                timesWrong: existing.timesWrong,
+                currentStreak: existing.currentStreak,
+                bestStreak: existing.bestStreak,
+                ease: existing.ease,
+                intervalDays: existing.intervalDays,
+                repetitions: existing.repetitions,
+                lapses: existing.lapses,
+                status: existing.status,
+                strength: existing.strength,
+                hintsUsed: existing.hintsUsed,
+                avgResponseMs: existing.avgResponseMs,
+                lastResult: existing.lastResult,
+                lastSeenAt: existing.lastSeenAt?.toISOString() ?? null,
+                firstSeenAt: existing.firstSeenAt?.toISOString() ?? null,
+                learnedAt: existing.learnedAt?.toISOString() ?? null,
+                masteredAt: existing.masteredAt?.toISOString() ?? null,
+                dueAt: existing.dueAt.toISOString(),
+              }
+            : null,
+        },
+        dailyStat: {
+          attempts: 0,
+          wrong: 0,
+          newWords: 0,
+          learned: 0,
+          mastered: 0,
+          points: 0,
+          timeMs: 0,
+        },
+        pointsAwarded: 0,
+        transactionId: null,
+      }
+    : null;
+
   await prisma.userWord.upsert({
     where: { userId_wordId: { userId: input.userId, wordId: word.id } },
     create: {
@@ -565,25 +660,6 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     isFirstCorrect,
   });
 
-  // ── Запись попытки ──
-  await prisma.attempt.create({
-    data: {
-      userId: input.userId,
-      wordId: word.id,
-      poolId: pool.id,
-      mode,
-      direction,
-      question: direction === 'ru_en' ? primaryTranslation(word) : word.text,
-      expected: answers[0] ?? '',
-      given: input.answer,
-      isCorrect: match.isCorrect,
-      matchType: match.matchType,
-      responseMs: input.responseMs,
-      hintsUsed: input.hintsUsed,
-      points: reward.points,
-    },
-  });
-
   // ── Обновление пулла ──
   if (match.isCorrect) {
     await prisma.poolItem.update({
@@ -614,7 +690,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       correctCount: match.isCorrect ? { increment: 1 } : undefined,
       wrongCount: match.isCorrect ? undefined : { increment: 1 },
       pointsEarned: { increment: reward.points },
-      durationMs: { increment: Math.min(input.responseMs, 120_000) },
+      durationMs: { increment: responseMsCapped },
     },
   });
 
@@ -649,7 +725,40 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     learned: becameLearned ? 1 : 0,
     mastered: becameMastered ? 1 : 0,
     points: reward.points,
-    timeMs: Math.min(input.responseMs, 120_000),
+    timeMs: responseMsCapped,
+  });
+
+  if (undoSnapshot) {
+    undoSnapshot.dailyStat = {
+      attempts: 1,
+      wrong: 1,
+      newWords: isNewWord ? 1 : 0,
+      learned: becameLearned ? 1 : 0,
+      mastered: becameMastered ? 1 : 0,
+      points: reward.points,
+      timeMs: responseMsCapped,
+    };
+    undoSnapshot.pointsAwarded = reward.points;
+    undoSnapshot.transactionId = award.transactionId ?? null;
+  }
+
+  await prisma.attempt.create({
+    data: {
+      userId: input.userId,
+      wordId: word.id,
+      poolId: pool.id,
+      mode,
+      direction,
+      question: direction === 'ru_en' ? primaryTranslation(word) : word.text,
+      expected: answers[0] ?? '',
+      given: input.answer,
+      isCorrect: match.isCorrect,
+      matchType: match.matchType,
+      responseMs: input.responseMs,
+      hintsUsed: input.hintsUsed,
+      points: reward.points,
+      undoSnapshot: undoSnapshot ? JSON.stringify(undoSnapshot) : null,
+    },
   });
 
   // ── Завершение пулла ──
@@ -724,6 +833,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
       examples,
       level: word.level,
     },
+    ...(canUndo ? { canUndo: true } : {}),
   };
 }
 
@@ -772,6 +882,156 @@ async function computeSessionStreak(userId: string, poolId: string): Promise<num
     streak++;
   }
   return streak;
+}
+
+/** Отменяет последний неверный ответ по слову в активном пулле. */
+export async function undoLastWrongAnswer(
+  userId: string,
+  poolId: string,
+  wordId: number,
+): Promise<{ state: PoolState; undo: UndoResult }> {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { timezoneOffset: true },
+  });
+  const today = todayKey(user.timezoneOffset);
+
+  await prisma.$transaction(async (tx) => {
+    const pool = await tx.pool.findFirst({ where: { id: poolId, userId } });
+    if (!pool || pool.status !== 'active') {
+      throw Object.assign(new Error('Этот пулл уже закрыт.'), { statusCode: 409 });
+    }
+
+    const attempt = await tx.attempt.findFirst({
+      where: {
+        poolId,
+        userId,
+        wordId,
+        isCorrect: false,
+        matchType: { not: 'skipped' },
+        undoneAt: null,
+        undoSnapshot: { not: null },
+      },
+      orderBy: { id: 'desc' },
+    });
+    if (!attempt?.undoSnapshot) {
+      throw Object.assign(new Error('Нечего отменять.'), { statusCode: 409 });
+    }
+
+    const latest = await tx.attempt.findFirst({
+      where: { poolId, undoneAt: null },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
+    if (latest?.id !== attempt.id) {
+      throw Object.assign(new Error('Отмена недоступна после перехода к следующему слову.'), { statusCode: 409 });
+    }
+
+    const snapshot = JSON.parse(attempt.undoSnapshot) as UndoSnapshot;
+
+    const item = await tx.poolItem.findFirst({ where: { poolId, wordId } });
+    if (!item || item.solved) {
+      throw Object.assign(new Error('Слово уже отгадано в этом пулле.'), { statusCode: 409 });
+    }
+
+    await tx.poolItem.update({
+      where: { id: item.id },
+      data: snapshot.poolItem,
+    });
+
+    await tx.pool.update({
+      where: { id: poolId },
+      data: snapshot.pool,
+    });
+
+    if (snapshot.userWord.existed && snapshot.userWord.data) {
+      const data = snapshot.userWord.data;
+      await tx.userWord.update({
+        where: { userId_wordId: { userId, wordId } },
+        data: {
+          timesSeen: data.timesSeen,
+          timesCorrect: data.timesCorrect,
+          timesWrong: data.timesWrong,
+          currentStreak: data.currentStreak,
+          bestStreak: data.bestStreak,
+          ease: data.ease,
+          intervalDays: data.intervalDays,
+          repetitions: data.repetitions,
+          lapses: data.lapses,
+          status: data.status,
+          strength: data.strength,
+          hintsUsed: data.hintsUsed,
+          avgResponseMs: data.avgResponseMs,
+          lastResult: data.lastResult,
+          lastSeenAt: data.lastSeenAt ? new Date(data.lastSeenAt) : null,
+          firstSeenAt: data.firstSeenAt ? new Date(data.firstSeenAt) : null,
+          learnedAt: data.learnedAt ? new Date(data.learnedAt) : null,
+          masteredAt: data.masteredAt ? new Date(data.masteredAt) : null,
+          dueAt: new Date(data.dueAt),
+        },
+      });
+    } else {
+      await tx.userWord.deleteMany({ where: { userId, wordId } });
+    }
+
+    if (snapshot.pointsAwarded > 0) {
+      const dbUser = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { points: true } });
+      const total = Math.max(0, dbUser.points - snapshot.pointsAwarded);
+      const level = levelFromPoints(total);
+      await tx.user.update({
+        where: { id: userId },
+        data: { points: total, level },
+      });
+      if (snapshot.transactionId) {
+        await tx.transaction.deleteMany({ where: { id: snapshot.transactionId, userId } });
+      }
+    }
+
+    const stat = await tx.dailyStat.findUnique({ where: { userId_day: { userId, day: today } } });
+    if (stat) {
+      const clamp = (current: number, delta: number | undefined) =>
+        delta ? Math.max(0, current - delta) : current;
+      const patch = snapshot.dailyStat;
+      await tx.dailyStat.update({
+        where: { userId_day: { userId, day: today } },
+        data: {
+          attempts: clamp(stat.attempts, patch.attempts),
+          wrong: clamp(stat.wrong, patch.wrong),
+          newWords: clamp(stat.newWords, patch.newWords),
+          learned: clamp(stat.learned, patch.learned),
+          mastered: clamp(stat.mastered, patch.mastered),
+          points: clamp(stat.points, patch.points),
+          timeMs: clamp(stat.timeMs, patch.timeMs),
+        },
+      });
+    }
+
+    await tx.attempt.update({
+      where: { id: attempt.id },
+      data: { undoneAt: new Date() },
+    });
+  });
+
+  const state = await getPoolState(userId, poolId);
+  if (!state.question || state.question.wordId !== wordId) {
+    throw Object.assign(new Error('Не удалось вернуть слово в очередь.'), { statusCode: 500 });
+  }
+
+  const ratingUser = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { points: true, level: true },
+  });
+
+  return {
+    state,
+    undo: {
+      rating: {
+        points: ratingUser.points,
+        level: ratingUser.level,
+        progress: levelProgress(ratingUser.points),
+      },
+    },
+  };
 }
 
 // ─────────────────────────────── Прочее ───────────────────────────────

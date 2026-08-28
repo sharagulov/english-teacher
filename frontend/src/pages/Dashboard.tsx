@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import { ActivityCalendar, AreaChart, Ring, StackedBar } from '../components/charts';
-import { Badge, Card, EmptyState, ErrorNote, LinkButton, Loading, SectionTitle, Stat } from '../components/ui';
+import { ActivityCalendar, AreaChart } from '../components/charts';
+import { Card, ErrorNote, LinkButton, Loading, Progress } from '../components/ui';
 import { api } from '../lib/api';
 import { formatDayKey, formatDuration, formatNumber, formatPercent, formatPoints, plural } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
@@ -15,187 +15,131 @@ export function Dashboard() {
   if (stats.error) return <ErrorNote message={stats.error} onRetry={stats.reload} />;
   if (!stats.data || !user) return null;
 
-  const { words, answers, today, review, pools, rating } = stats.data;
+  const { words, answers, today, review } = stats.data;
   const series = daily.data?.series ?? [];
-
   const goalDone = today.goalProgress >= 1;
+  const firstName = user.name.split(' ')[0];
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {greeting()}, {user.name.split(' ')[0]}
+    <div className="mx-auto max-w-4xl space-y-10">
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="word-display text-[34px] leading-[1.1] font-semibold tracking-tight sm:text-[42px]">
+            {greeting()}, {firstName}
           </h1>
-          <p className="text-soft mt-1 text-sm">
-            {goalDone
-              ? 'Дневная цель выполнена. Всё, что дальше, — сверх плана.'
-              : `До дневной цели осталось ${plural(today.goal - today.correct, 'слово', 'слова', 'слов')}.`}
+          <p className="text-soft mt-2 max-w-md text-[14px] leading-relaxed">
+            {words.encountered === 0
+              ? 'Соберите первый пулл — это займёт пару минут.'
+              : goalDone
+                ? 'Дневная цель выполнена. Дальше — сверх плана.'
+                : `До цели осталось ${plural(today.goal - today.correct, 'слово', 'слова', 'слов')}.`}
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <LinkButton to="/practice" variant="primary" size="lg" className="px-5">
-            Заниматься
-          </LinkButton>
-        </div>
+        <LinkButton
+          to="/practice"
+          variant="primary"
+          size="lg"
+          className="h-14 shrink-0 px-8 text-[16px] sm:min-w-[200px]"
+        >
+          Заниматься
+        </LinkButton>
       </header>
 
-      {/* ─── Дневная цель и серия ─── */}
-      <Card className="flex flex-wrap items-center gap-x-10 gap-y-6">
-        <div className="flex items-center gap-4">
-          <Ring value={today.goalProgress} tone={goalDone ? 'success' : 'accent'} size={78}>
-            <span className="text-[15px] font-semibold tabular-nums">
-              {today.correct}
-              <span className="text-faint">/{today.goal}</span>
-            </span>
-          </Ring>
-          <div>
-            <p className="text-[13px] font-medium">Сегодня</p>
-            <p className="text-soft mt-0.5 text-[12px]">
-              {plural(today.attempts, 'ответ', 'ответа', 'ответов')} · {formatDuration(today.timeMs)}
-            </p>
-            <p className="text-faint mt-0.5 text-[12px]">+{formatPoints(today.points)} за день</p>
-          </div>
+      <Card className="p-6 sm:p-8">
+        <p className="text-faint text-[12px] font-medium tracking-wide uppercase">Сегодня</p>
+        <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1">
+          <p className="word-display text-[56px] leading-none font-semibold tracking-tight sm:text-[72px]">
+            {today.correct}
+          </p>
+          <p className="text-faint mb-1.5 text-[22px] font-medium tabular-nums sm:mb-2 sm:text-[28px]">/{today.goal}</p>
         </div>
-
-        <div className="border-line hidden h-14 border-l sm:block" />
-
-        <Stat
-          label="Уровень"
-          value={String(rating.level)}
-          hint={
-            rating.progress.isMax
-              ? 'максимум из 1000'
-              : `${formatNumber(rating.points)} очков · до ${rating.level + 1} ур. ${formatNumber(rating.progress.pointsToNext)}`
-          }
-          tone="accent"
-        />
-
-        <Stat
-          label="Дневная серия"
-          value={plural(user.dailyStreak, 'день', 'дня', 'дней')}
-          hint={`Лучшая серия — ${plural(user.longestStreak, 'день', 'дня', 'дней')}`}
-        />
-
-        <Stat
-          label="К повторению"
-          value={formatNumber(review.dueNow)}
-          hint={review.dueTomorrow > 0 ? `Завтра ещё ${review.dueTomorrow}` : 'На сегодня всё'}
-          tone={review.dueNow > 0 ? 'accent' : undefined}
-        />
-
-        <Stat label="Точность" value={formatPercent(answers.accuracy)} hint={`${formatNumber(answers.attempts)} ответов всего`} />
-
-        {user.streakFreezes > 0 ? (
-          <Badge tone="accent">Заморозок серии: {user.streakFreezes}</Badge>
-        ) : null}
+        <Progress value={today.goalProgress} tone={goalDone ? 'success' : 'ink'} className="mt-5 h-1" />
+        <p className="text-faint mt-3 text-[13px]">
+          {today.attempts === 0
+            ? 'Пока без ответов'
+            : `${plural(today.attempts, 'ответ', 'ответа', 'ответов')} · ${formatDuration(today.timeMs)} · +${formatPoints(today.points)}`}
+        </p>
       </Card>
 
-      {/* ─── Словарь ─── */}
-      <section>
-        <SectionTitle
-          title="Ваш словарь"
-          description={`Встречено ${formatNumber(words.encountered)} из ${formatNumber(words.dictionaryTotal)} слов (${formatPercent(words.coverage, 1)})`}
-          action={
-            <Link to="/stats" className="text-accent text-[13px] hover:underline">
-              Подробная статистика
-            </Link>
-          }
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+        <Metric
+          label="К повторению"
+          value={formatNumber(review.dueNow)}
+          hint={review.dueTomorrow > 0 ? `завтра ещё ${formatNumber(review.dueTomorrow)}` : 'на сегодня всё'}
+          highlight={review.dueNow > 0}
         />
-        <Card>
-          {words.encountered === 0 ? (
-            <EmptyState
-              title="Вы ещё не начали"
-              description="Соберите первый пулл слов — это займёт пару минут."
-              action={
-                <LinkButton to="/practice" variant="primary">
-                  Собрать пулл
-                </LinkButton>
-              }
-            />
-          ) : (
-            <>
-              <StackedBar
-                segments={[
-                  { label: 'Изучается', value: words.learning, color: 'var(--warning)' },
-                  { label: 'На повторении', value: words.review, color: 'var(--accent)' },
-                  { label: 'Освоено', value: words.mastered, color: 'var(--success)' },
-                  { label: 'Проблемные', value: words.leech, color: 'var(--danger)' },
-                ]}
-              />
-              <div className="border-line mt-5 grid grid-cols-2 gap-5 border-t pt-5 sm:grid-cols-4">
-                <Stat label="Изучено" value={formatNumber(words.learned)} hint="повторение или освоено" />
-                <Stat label="Освоено" value={formatNumber(words.mastered)} tone="success" />
-                <Stat label="Пуллов пройдено" value={formatNumber(pools.completed)} hint={`без ошибок — ${pools.perfect}`} />
-                <Stat label="Средний ответ" value={`${(answers.avgResponseMs / 1000).toFixed(1)} с`} />
-              </div>
-            </>
-          )}
-        </Card>
-      </section>
+        <Metric
+          label="Серия"
+          value={String(user.dailyStreak)}
+          hint={`лучшая — ${user.longestStreak}`}
+        />
+        <Metric
+          label="Точность"
+          value={formatPercent(answers.accuracy)}
+          hint={plural(answers.attempts, 'ответ', 'ответа', 'ответов')}
+        />
+        <Metric
+          label="В словаре"
+          value={formatNumber(words.learned)}
+          hint={`${formatPercent(words.coverage)} покрытия`}
+        />
+      </div>
 
-      {/* ─── Активность ─── */}
-      <section className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <SectionTitle title="Ответы за месяц" />
-          {daily.loading ? (
+      <section>
+        <div className="mb-4 flex items-baseline justify-between gap-4">
+          <h2 className="text-[13px] font-medium tracking-wide text-faint uppercase">Ответы за месяц</h2>
+          <Link to="/stats" className="text-faint hover:text-ink text-[13px] transition-colors">
+            Вся статистика
+          </Link>
+        </div>
+        <Card padded={false} className="overflow-hidden px-5 pt-5 pb-3">
+          {daily.loading && series.length === 0 ? (
             <Loading label="" />
           ) : (
             <AreaChart
+              height={120}
               points={series.map((point) => ({ label: formatDayKey(point.day), value: point.attempts }))}
               formatValue={(value) => plural(value, 'ответ', 'ответа', 'ответов')}
             />
           )}
         </Card>
-
-        <Card>
-          <SectionTitle title="Новые слова за месяц" />
-          {daily.loading ? (
-            <Loading label="" />
-          ) : (
-            <AreaChart
-              tone="success"
-              points={series.map((point) => ({ label: formatDayKey(point.day), value: point.newWords }))}
-              formatValue={(value) => plural(value, 'слово', 'слова', 'слов')}
+        {series.length > 0 ? (
+          <div className="mt-5">
+            <ActivityCalendar
+              days={series.map((point) => ({
+                day: point.day,
+                value: point.attempts,
+                label: `${formatDayKey(point.day)} — ${plural(point.attempts, 'ответ', 'ответа', 'ответов')}`,
+              }))}
             />
-          )}
-        </Card>
-      </section>
-
-      <section className="grid gap-5 lg:grid-cols-[1fr_auto]">
-        <Card>
-          <SectionTitle title="Занятия по дням" description="Чем насыщеннее цвет, тем больше ответов за день" />
-          <ActivityCalendar
-            days={series.map((point) => ({
-              day: point.day,
-              value: point.attempts,
-              label: `${formatDayKey(point.day)} — ${plural(point.attempts, 'ответ', 'ответа', 'ответов')}`,
-            }))}
-          />
-        </Card>
-
-        <Card className="lg:w-64">
-          <SectionTitle title="Рейтинг" />
-          <div className="flex items-center gap-4">
-            <Ring value={rating.progress.progress} size={72}>
-              <span className="text-[16px] font-semibold tabular-nums">{rating.level}</span>
-            </Ring>
-            <div>
-              <p className="text-ink text-sm font-medium tabular-nums">{formatNumber(rating.points)}</p>
-              <p className="text-faint mt-0.5 text-[12px]">очков всего</p>
-            </div>
           </div>
-          <p className="text-soft mt-4 text-[12px] leading-relaxed">
-            {rating.progress.isMax
-              ? 'Тысячный уровень взят — это предел.'
-              : `До ${rating.level + 1} уровня — ${formatPoints(rating.progress.pointsToNext)}.`}
-          </p>
-          <LinkButton to="/rewards" size="sm" variant="secondary" block className="mt-5">
-            Награды за уровни
-          </LinkButton>
-        </Card>
+        ) : null}
       </section>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="bg-raised border-line rounded-2xl border px-4 py-5 sm:px-5">
+      <p className="text-faint text-[12px] font-medium tracking-wide uppercase">{label}</p>
+      <p
+        className={`mt-2 text-[32px] leading-none font-semibold tracking-tight tabular-nums sm:text-[36px] ${highlight ? 'text-accent' : 'text-ink'}`}
+      >
+        {value}
+      </p>
+      <p className="text-faint mt-2 text-[12px] leading-snug">{hint}</p>
     </div>
   );
 }

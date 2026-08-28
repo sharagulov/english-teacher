@@ -11,6 +11,7 @@ import {
   MAX_STREAK_FREEZES,
   dailyStreakReward,
   levelFromPoints,
+  levelProgress,
 } from '../lib/economy.js';
 import { daysBetween, todayKey } from '../lib/day.js';
 
@@ -24,6 +25,8 @@ export interface PointsAward {
   leveledUp: boolean;
   /** Сколько заморозок серии выдано за взятые уровни. */
   freezesGranted: number;
+  /** Id записи в истории начислений, если очки > 0. */
+  transactionId?: number;
 }
 
 /**
@@ -61,8 +64,9 @@ export async function awardPoints(
     },
   });
 
+  let transactionId: number | undefined;
   if (points !== 0) {
-    await prisma.transaction.create({
+    const row = await prisma.transaction.create({
       data: {
         userId,
         amount: points,
@@ -71,6 +75,7 @@ export async function awardPoints(
         balanceAfter: total,
       },
     });
+    transactionId = row.id;
   }
 
   return {
@@ -80,7 +85,39 @@ export async function awardPoints(
     previousLevel: user.level,
     leveledUp: level > user.level,
     freezesGranted,
+    transactionId,
   };
+}
+
+/** Откатывает начисление очков и удаляет связанную транзакцию. */
+export async function subtractPoints(userId: string, points: number, transactionId?: number | null) {
+  const amount = Math.max(0, Math.round(points));
+  if (amount === 0) {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { points: true, level: true },
+    });
+    return { total: user.points, level: user.level, progress: levelProgress(user.points) };
+  }
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { points: true },
+  });
+
+  const total = Math.max(0, user.points - amount);
+  const level = levelFromPoints(total);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { points: total, level },
+  });
+
+  if (transactionId) {
+    await prisma.transaction.deleteMany({ where: { id: transactionId, userId } });
+  }
+
+  return { total, level, progress: levelProgress(total) };
 }
 
 /** Инкрементально обновляет агрегат за день (для графиков и статистики). */
@@ -111,6 +148,34 @@ export async function bumpDailyStat(
       timeMs: patch.timeMs ?? 0,
       aiTasks: patch.aiTasks ?? 0,
       poolsDone: patch.poolsDone ?? 0,
+    },
+  });
+}
+
+/** Откатывает инкременты дневной статистики (не ниже нуля). */
+export async function decrementDailyStat(
+  userId: string,
+  day: string,
+  patch: Partial<Record<'attempts' | 'correct' | 'wrong' | 'newWords' | 'learned' | 'mastered' | 'points' | 'timeMs' | 'poolsDone', number>>,
+): Promise<void> {
+  const stat = await prisma.dailyStat.findUnique({ where: { userId_day: { userId, day } } });
+  if (!stat) return;
+
+  const clamp = (current: number, delta: number | undefined) =>
+    delta ? Math.max(0, current - delta) : current;
+
+  await prisma.dailyStat.update({
+    where: { userId_day: { userId, day } },
+    data: {
+      attempts: clamp(stat.attempts, patch.attempts),
+      correct: clamp(stat.correct, patch.correct),
+      wrong: clamp(stat.wrong, patch.wrong),
+      newWords: clamp(stat.newWords, patch.newWords),
+      learned: clamp(stat.learned, patch.learned),
+      mastered: clamp(stat.mastered, patch.mastered),
+      points: clamp(stat.points, patch.points),
+      timeMs: clamp(stat.timeMs, patch.timeMs),
+      poolsDone: clamp(stat.poolsDone, patch.poolsDone),
     },
   });
 }

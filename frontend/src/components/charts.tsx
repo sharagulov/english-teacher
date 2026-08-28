@@ -35,14 +35,16 @@ export function AreaChart({
 
   const width = 100;
   const step = points.length > 1 ? width / (points.length - 1) : 0;
+  const baselineY = height - 4;
+  const plotHeight = height - 12;
 
   const coords = points.map((point, index) => ({
     x: index * step,
-    y: height - ((point.value ?? 0) / max) * (height - 12) - 4,
+    y: baselineY - ((point.value ?? 0) / max) * plotHeight,
   }));
 
   const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
-  const area = `${line} L${width},${height} L0,${height} Z`;
+  const area = `${line} L${width},${baselineY} L0,${baselineY} Z`;
   const color = tone === 'success' ? 'var(--success)' : 'var(--accent)';
 
   if (!hasData) {
@@ -57,51 +59,55 @@ export function AreaChart({
 
   return (
     <div className="relative">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="w-full"
-        style={{ height }}
-        onMouseLeave={() => setHover(null)}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.16" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
+      <div className="relative" style={{ height }}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
+          onMouseLeave={() => setHover(null)}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.16" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
 
-        <path d={area} fill={`url(#${gradientId})`} />
-        <path d={line} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+          <path d={area} fill={`url(#${gradientId})`} />
+          <path d={line} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
 
-        {hover != null && coords[hover] ? (
-          <g>
-            <line
-              x1={coords[hover]!.x}
-              y1={0}
-              x2={coords[hover]!.x}
-              y2={height}
-              stroke="var(--line-strong)"
-              strokeWidth="1"
-              vectorEffect="non-scaling-stroke"
+          {/* Прозрачные области для наведения — по одной на точку. */}
+          {points.map((point, index) => (
+            <rect
+              key={point.label}
+              x={index * step - step / 2}
+              y={0}
+              width={Math.max(step, 1)}
+              height={height}
+              fill="transparent"
+              onMouseEnter={() => setHover(index)}
             />
-            <circle cx={coords[hover]!.x} cy={coords[hover]!.y} r="2.5" fill={color} />
-          </g>
-        ) : null}
+          ))}
+        </svg>
 
-        {/* Прозрачные области для наведения — по одной на точку. */}
-        {points.map((point, index) => (
-          <rect
-            key={point.label}
-            x={index * step - step / 2}
-            y={0}
-            width={Math.max(step, 1)}
-            height={height}
-            fill="transparent"
-            onMouseEnter={() => setHover(index)}
-          />
-        ))}
-      </svg>
+        {/* HTML-слой: круг и линия не искажаются при preserveAspectRatio="none". */}
+        {hover != null && coords[hover] ? (
+          <div className="pointer-events-none absolute inset-0" aria-hidden>
+            <div
+              className="bg-line-strong absolute top-0 bottom-0 w-px"
+              style={{ left: `${(coords[hover]!.x / width) * 100}%` }}
+            />
+            <div
+              className="absolute size-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                left: `${(coords[hover]!.x / width) * 100}%`,
+                top: `${(coords[hover]!.y / height) * 100}%`,
+                background: color,
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
 
       <div className="text-faint mt-1.5 flex justify-between text-[11px]">
         <span>{points[0]?.label}</span>

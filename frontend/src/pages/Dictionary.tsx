@@ -327,7 +327,7 @@ function WordModal({
         <div>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex items-start gap-2.5">
+              <div className="flex items-center gap-2.5">
                 <p className="word-display text-ink text-[34px] leading-tight font-semibold tracking-tight">
                   {word.text}
                 </p>
@@ -338,7 +338,6 @@ function WordModal({
                     detail.reload();
                     onChanged();
                   }}
-                  className="mt-1.5"
                 />
               </div>
               <div className="mt-1.5 flex items-center gap-3">

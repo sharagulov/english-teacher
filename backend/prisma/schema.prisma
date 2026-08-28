@@ -245,6 +245,10 @@ model Attempt {
   hintsUsed  Int    @default(0)
   points     Int    @default(0)
 
+  /** Снимок состояния до ответа — для отмены неверного ответа. */
+  undoSnapshot String?
+  undoneAt     DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])

@@ -125,6 +125,8 @@ export interface AnswerResult {
     examples: WordExample[];
     level: CefrLevel;
   };
+  /** Можно отменить неверный ответ до перехода к следующему слову. */
+  canUndo?: boolean;
 }
 
 /** Короткая фраза с изучаемым словом: из корпуса Tatoeba, словаря или от ИИ. */
