@@ -1,4 +1,4 @@
-import { CircleHelp } from 'lucide-react';
+import { ArrowLeft, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
@@ -248,9 +248,10 @@ export function Session() {
           <button
             type="button"
             onClick={() => navigate('/practice')}
-            className="text-faint hover:text-ink text-[13px] transition-colors"
+            className="text-faint hover:text-ink inline-flex items-center gap-1 text-[13px] transition-colors"
           >
-            ← Выйти
+            <ArrowLeft size={14} strokeWidth={1.75} aria-hidden="true" />
+            Выйти
           </button>
           <div className="flex-1">
             <Progress value={solved / Math.max(1, total)} tone="ink" />
@@ -393,19 +394,30 @@ function QuestionForm({
   return (
     <div>
       {choices && choices.length > 0 ? (
-        <div className="grid gap-2.5 sm:grid-cols-2">
-          {choices.map((choice, index) => (
-            <button
-              key={choice}
-              type="button"
-              disabled={sending}
-              onClick={() => onSubmit(choice)}
-              className="border-line bg-raised hover:border-line-strong flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left text-sm transition-colors duration-150 disabled:opacity-50"
-            >
-              <Kbd>{index + 1}</Kbd>
-              <span className="text-ink">{choice}</span>
-            </button>
-          ))}
+        <div className="space-y-4">
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {choices.map((choice, index) => (
+              <button
+                key={choice}
+                type="button"
+                disabled={sending}
+                onClick={() => onSubmit(choice)}
+                className="border-line bg-raised hover:border-line-strong flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left text-sm transition-colors duration-150 disabled:opacity-50"
+              >
+                <Kbd>{index + 1}</Kbd>
+                <span className="text-ink">{choice}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" size="md" disabled={sending} onClick={onGiveUp}>
+              <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
+              Не знаю
+            </Button>
+            <span className="text-faint text-[12px]">
+              <Kbd>Esc</Kbd>
+            </span>
+          </div>
         </div>
       ) : (
         <form
@@ -433,15 +445,17 @@ function QuestionForm({
         </form>
       )}
 
-      <div className="mt-4 flex items-center gap-3">
-        <Button variant="ghost" size="md" disabled={sending} onClick={onGiveUp}>
-          <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
-          Не знаю
-        </Button>
-        <span className="text-faint text-[12px]">
-          <Kbd>Esc</Kbd>
-        </span>
-      </div>
+      {!choices || choices.length === 0 ? (
+        <div className="mt-4 flex items-center gap-3">
+          <Button variant="ghost" size="md" disabled={sending} onClick={onGiveUp}>
+            <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
+            Не знаю
+          </Button>
+          <span className="text-faint text-[12px]">
+            <Kbd>Esc</Kbd>
+          </span>
+        </div>
+      ) : null}
 
       {/* ─── Подсказки: при готовых вариантах в них нет смысла ─── */}
       <div className={cx('mt-6', choices && choices.length > 0 && 'hidden')}>
