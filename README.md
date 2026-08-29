@@ -197,6 +197,16 @@ git push -u origin release-server
 Дальше: мержите в `release-server` (или пушите туда) — уйдёт выкладка.
 Вручную: Actions → Deploy → Run workflow.
 
+**Если Deploy падает с «Сервис lexio ещё не установлен»** — на VPS один раз от root:
+
+```bash
+cd /opt/lexio
+git pull origin release-server
+sudo bash scripts/install-service.sh
+```
+
+Затем перезапустите workflow в GitHub Actions.
+
 При переезде на PostgreSQL меняется `provider` в `prisma/schema.prisma` и адаптер
 в `src/db.ts`; поля, где SQLite вынуждал хранить списки строками JSON, можно
 перевести в нативные массивы.

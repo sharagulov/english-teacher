@@ -56,14 +56,7 @@ fi
 
 sudo -u lexio bash -lc "cd '$APP_DIR' && npm ci && npm run db:setup && npm run build"
 
-install -m 644 "$APP_DIR/deploy/lexio.service" /etc/systemd/system/lexio.service
-cat >/etc/sudoers.d/lexio-deploy <<'EOF'
-lexio ALL=NOPASSWD: /bin/systemctl restart lexio, /bin/systemctl status lexio, /bin/systemctl is-enabled lexio, /bin/systemctl cat lexio
-EOF
-chmod 440 /etc/sudoers.d/lexio-deploy
-
-systemctl daemon-reload
-systemctl enable --now lexio
+bash "$APP_DIR/scripts/install-service.sh"
 
 echo
 echo "Lexio слушает 127.0.0.1 и 0.0.0.0:4000 (HOST в .env)."
