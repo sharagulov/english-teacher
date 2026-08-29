@@ -33,7 +33,7 @@ npm run db:push --workspace backend
 npm run build
 
 if command -v systemctl >/dev/null 2>&1; then
-  if ! sudo systemctl cat "${SERVICE}.service" >/dev/null 2>&1; then
+  if ! sudo systemctl cat "$SERVICE" >/dev/null 2>&1; then
     echo "Сервис ${SERVICE} ещё не установлен."
     echo "На VPS один раз от root: sudo bash ${APP_DIR}/scripts/install-service.sh"
     echo "Или полная настройка: sudo bash ${APP_DIR}/scripts/server-setup.sh"
