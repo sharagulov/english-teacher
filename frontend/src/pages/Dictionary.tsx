@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
 import { DislikeButton } from '../components/DislikeButton';
+import { Switch } from '../components/Switch';
 import {
   Badge,
   Button,
@@ -148,18 +149,17 @@ export function Dictionary() {
           </Select>
         </div>
 
-        <label className="text-soft mt-4 flex cursor-pointer items-center gap-2 text-[13px]">
-          <input
-            type="checkbox"
+        <div className="text-soft mt-4 flex items-center justify-between gap-3 text-[13px]">
+          <span>Только слова, которые я ещё не встречал</span>
+          <Switch
             checked={onlyUnseen}
-            onChange={(event) => {
-              setOnlyUnseen(event.target.checked);
+            aria-label="Только слова, которые я ещё не встречал"
+            onChange={(value) => {
+              setOnlyUnseen(value);
               setPage(1);
             }}
-            className="accent-ink h-4 w-4"
           />
-          Только слова, которые я ещё не встречал
-        </label>
+        </div>
       </Card>
 
       {words.error ? <ErrorNote message={words.error} onRetry={words.reload} /> : null}

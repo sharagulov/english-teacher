@@ -111,8 +111,15 @@ export const api = {
 
   practice: {
     overview: () => request<PracticeOverview>('GET', '/practice/overview'),
-    createPool: (body: { mode: PracticeMode; size: number; levels?: CefrLevel[]; topics?: string[]; partsOfSpeech?: string[] }) =>
-      request<PoolState>('POST', '/practice/pools', body),
+    createPool: (body: {
+      mode: PracticeMode;
+      size: number;
+      levels?: CefrLevel[];
+      topics?: string[];
+      partsOfSpeech?: string[];
+      /** Только classic: RU→EN вместо обычного EN→RU. */
+      direction?: 'en_ru' | 'ru_en';
+    }) => request<PoolState>('POST', '/practice/pools', body),
     activePool: () => request<{ state: PoolState | null }>('GET', '/practice/pools/active'),
     pool: (id: string) => request<PoolState>('GET', `/practice/pools/${id}`),
     answer: (id: string, body: { wordId: number; answer: string; responseMs: number; hintsUsed: number; gaveUp?: boolean }) =>

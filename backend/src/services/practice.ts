@@ -62,10 +62,32 @@ export function directionForMode(mode: PracticeMode): 'en_ru' | 'ru_en' | 'audio
   return 'en_ru';
 }
 
+function directionFromFilters(raw: string | null | undefined): 'en_ru' | 'ru_en' | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const direction = (parsed as { direction?: unknown }).direction;
+    return direction === 'en_ru' || direction === 'ru_en' ? direction : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Направление вопроса: у classic можно переопределить через filters.direction. */
+export function directionForPool(mode: PracticeMode, filtersJson?: string | null): 'en_ru' | 'ru_en' | 'audio_en' {
+  if (mode === 'listening') return 'audio_en';
+  if (mode === 'reverse') return 'ru_en';
+  if (mode === 'classic' && directionFromFilters(filtersJson) === 'ru_en') return 'ru_en';
+  return directionForMode(mode);
+}
+
 export interface PoolFilters {
   levels?: CefrLevel[];
   topics?: string[];
   partsOfSpeech?: string[];
+  /** Classic: направление вопроса. Остальные поля — отбор слов. */
+  direction?: 'en_ru' | 'ru_en';
 }
 
 type WordRecord = Prisma.WordGetPayload<{}>;
@@ -373,7 +395,7 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
   const total = pool._count.items;
   const item = pool.items[0];
   const mode = pool.mode as PracticeMode;
-  const direction = directionForMode(mode);
+  const direction = directionForPool(mode, pool.filters);
 
   let question: Question | null = null;
 
@@ -564,7 +586,7 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
   }
 
   const mode = pool.mode as PracticeMode;
-  const direction = directionForMode(mode);
+  const direction = directionForPool(mode, pool.filters);
   const word = item.word;
   const answers = expectedAnswers(word, direction);
 

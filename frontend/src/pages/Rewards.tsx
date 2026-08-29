@@ -1,6 +1,7 @@
 import { Badge, Card, ErrorNote, Loading, PageHeader, Progress, SectionTitle, Stat, cx } from '../components/ui';
+import { RatingPoints, RatingPointsLabel } from '../components/RatingPoints';
 import { api } from '../lib/api';
-import { formatNumber, formatPoints } from '../lib/format';
+import { formatNumber } from '../lib/format';
 import type { LevelRewardItem } from '../lib/types';
 import { useAsync } from '../lib/useAsync';
 import { useAuth } from '../store/auth';
@@ -27,7 +28,9 @@ export function Rewards() {
       <PageHeader
         title="Награды"
         description="Очки рейтинга не тратятся. Всё, что есть в приложении, открывается ростом уровня."
-        action={<span className="text-ink text-[15px] font-semibold tabular-nums">{formatPoints(rewards.data.points)}</span>}
+        action={
+          <RatingPoints amount={rewards.data.points} iconSize={15} valueClassName="text-[15px] font-semibold text-ink" />
+        }
       />
 
       <Card className="mb-6">
@@ -45,7 +48,12 @@ export function Rewards() {
             <p className="text-faint mt-2 text-[12px]">
               {progress.isMax
                 ? 'Тысячный уровень — дальше расти некуда.'
-                : `До ${progress.level + 1} уровня — ${formatPoints(progress.pointsToNext)}.`}
+                : (
+                    <>
+                      До {progress.level + 1} уровня —{' '}
+                      <RatingPointsLabel amount={progress.pointsToNext} valueClassName="text-[12px]" />.
+                    </>
+                  )}
             </p>
           </div>
 

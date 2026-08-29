@@ -147,7 +147,7 @@ ok('открыто', rewards.items.filter((i) => i.unlocked).map((i) => i.code).
 ok('заморозок серии', `${rewards.streakFreezes} из ${rewards.maxStreakFreezes}`);
 
 console.log('\n10. Прочие режимы');
-for (const mode of ['choice', 'reverse', 'srs', 'weak']) {
+for (const mode of ['choice', 'listening', 'srs', 'weak']) {
   try {
     const s = await call('POST', '/practice/pools', { mode, size: 5 });
     ok(`режим ${mode}`, `создан, вопрос: ${s.question?.prompt}${s.question?.choices ? ` | варианты: ${s.question.choices.join(' / ')}` : ''}`);

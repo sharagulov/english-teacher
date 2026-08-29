@@ -1,33 +1,28 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { RatingPoints } from './RatingPoints';
 import { formatNumber } from '../lib/format';
+import { CHAT_DISABLED_HINT, CHAT_ENABLED } from '../lib/features';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 import { Toasts } from './Toasts';
 import { cx } from './ui';
 
-const NAV = [
+const NAV: {
+  to: string;
+  label: string;
+  end?: boolean;
+  disabled?: boolean;
+  title?: string;
+}[] = [
   { to: '/', label: 'Обзор', end: true },
   { to: '/practice', label: 'Слова' },
   { to: '/ai', label: 'Задания ИИ' },
-  { to: '/chat', label: 'Диалог' },
+  { to: '/chat', label: 'Диалог', disabled: !CHAT_ENABLED, title: CHAT_DISABLED_HINT },
   { to: '/dictionary', label: 'Словарь' },
   { to: '/stats', label: 'Статистика' },
   { to: '/rewards', label: 'Награды' },
   { to: '/profile', label: 'Профиль' },
 ];
-
-function RatingIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M2.5 13.5v-4M6.5 13.5V7M10.5 13.5V4M14.5 13.5V9.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 function FlameIcon() {
   return (
@@ -65,14 +60,23 @@ export function Layout() {
                   key={item.to}
                   to={item.to}
                   end={item.end}
+                  title={item.title}
+                  aria-disabled={item.disabled || undefined}
                   className={({ isActive }) =>
                     cx(
                       'rounded-lg px-2.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors duration-150',
-                      isActive ? 'bg-sunken text-ink' : 'text-soft hover:text-ink',
+                      item.disabled
+                        ? isActive
+                          ? 'bg-sunken text-faint opacity-60'
+                          : 'text-faint opacity-45 hover:opacity-60'
+                        : isActive
+                          ? 'bg-sunken text-ink'
+                          : 'text-soft hover:text-ink',
                     )
                   }
                 >
                   {item.label}
+                  {item.disabled ? <span className="sr-only"> — {item.title}</span> : null}
                 </NavLink>
               ))}
             </nav>
@@ -86,10 +90,12 @@ export function Layout() {
                   <FlameIcon />
                   {user.dailyStreak}
                 </span>
-                <span className="text-ink flex items-center gap-1 text-[13px] font-medium tabular-nums" title="Очки рейтинга">
-                  <RatingIcon />
-                  {formatNumber(user.points)}
-                </span>
+                <RatingPoints
+                  amount={user.points}
+                  iconSize={13}
+                  iconClassName="text-accent"
+                  valueClassName="text-[13px] font-medium text-ink"
+                />
                 {progress ? (
                   <NavLink
                     to="/rewards"

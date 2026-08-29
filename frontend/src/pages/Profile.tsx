@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Ring } from '../components/charts';
+import { RatingPoints } from '../components/RatingPoints';
+import { SwitchField } from '../components/Switch';
 import {
   Badge,
   Button,
@@ -119,19 +121,19 @@ export function Profile() {
           <Card>
             <SectionTitle title="Тренажёр" description="Настройки применяются сразу" />
             <div className="space-y-1">
-              <Toggle
+              <SwitchField
                 label="Прощать опечатки"
                 description="До двух опечаток в слове засчитываются как верный ответ (в коротких — не больше одной), но награда снижается."
                 checked={user.typoTolerance}
                 onChange={(value) => void save({ typoTolerance: value }, true)}
               />
-              <Toggle
+              <SwitchField
                 label="Озвучка"
                 description="Слова и реплики репетитора произносятся синтезатором браузера."
                 checked={user.soundEnabled}
                 onChange={(value) => void save({ soundEnabled: value }, true)}
               />
-              <Toggle
+              <SwitchField
                 label="Показывать транскрипцию"
                 description="Транскрипция выводится рядом со словом, если она известна."
                 checked={user.showTranscript}
@@ -215,7 +217,7 @@ export function Profile() {
             </div>
 
             <div className="border-line mt-5 grid grid-cols-2 gap-4 border-t pt-5">
-              <Stat label="Очки рейтинга" value={formatNumber(user.points)} />
+              <Stat label="Очки рейтинга" value={<RatingPoints amount={user.points} />} />
               <Stat
                 label="До уровня выше"
                 value={progress.isMax ? '—' : formatNumber(progress.pointsToNext)}
@@ -342,29 +344,3 @@ function AiUsageSection({ data, loading }: { data: AiUsageOverview | null; loadi
   );
 }
 
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="hover:bg-sunken/60 -mx-2 flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2.5 transition-colors">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="accent-ink mt-0.5 h-4 w-4 shrink-0"
-      />
-      <span>
-        <span className="text-ink block text-[13px] font-medium">{label}</span>
-        <span className="text-faint mt-0.5 block text-[12px] leading-relaxed">{description}</span>
-      </span>
-    </label>
-  );
-}

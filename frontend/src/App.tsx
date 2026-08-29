@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Loading } from './components/ui';
+import { CHAT_ENABLED } from './lib/features';
 import { setUnauthorizedHandler } from './lib/api';
 import { Auth } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
@@ -13,7 +14,9 @@ import { themesForLevel, useUi } from './store/ui';
 const Practice = lazy(() => import('./pages/Practice').then((m) => ({ default: m.Practice })));
 const Session = lazy(() => import('./pages/Session').then((m) => ({ default: m.Session })));
 const AiTasks = lazy(() => import('./pages/AiTasks').then((m) => ({ default: m.AiTasks })));
-const AiChat = lazy(() => import('./pages/AiChat').then((m) => ({ default: m.AiChat })));
+const AiChat = CHAT_ENABLED
+  ? lazy(() => import('./pages/AiChat').then((m) => ({ default: m.AiChat })))
+  : lazy(() => import('./pages/ChatUnavailable').then((m) => ({ default: m.ChatUnavailable })));
 const Dictionary = lazy(() => import('./pages/Dictionary').then((m) => ({ default: m.Dictionary })));
 const Stats = lazy(() => import('./pages/Stats').then((m) => ({ default: m.Stats })));
 const Rewards = lazy(() => import('./pages/Rewards').then((m) => ({ default: m.Rewards })));

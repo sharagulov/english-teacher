@@ -11,11 +11,12 @@ import { CEFR_LEVELS, levelsUpTo } from '../lib/levels.js';
 import { abandonPool, buyChoiceHint, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, undoLastWrongAnswer } from '../services/practice.js';
 
 const poolBody = z.object({
-  mode: z.enum(PRACTICE_MODES as [string, ...string[]]).default('classic'),
+  mode: z.enum(PRACTICE_MODES).default('classic'),
   size: z.number().int().min(5).max(50).default(20),
   levels: z.array(z.enum(CEFR_LEVELS)).optional(),
   topics: z.array(z.string().min(1).max(80)).max(20).optional(),
   partsOfSpeech: z.array(z.string().min(1).max(30)).max(10).optional(),
+  direction: z.enum(['en_ru', 'ru_en']).optional(),
 });
 
 const answerBody = z.object({
@@ -75,25 +76,26 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'Некорректные параметры пулла' });
     }
 
-    const { mode, size, ...filters } = parsed.data;
+    const { mode, size, direction, ...filters } = parsed.data;
 
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: request.userId },
       select: { level: true },
     });
-    const required = MODE_UNLOCK_LEVEL[mode as keyof typeof MODE_UNLOCK_LEVEL];
+    const required = MODE_UNLOCK_LEVEL[mode];
     if (user.level < required) {
       return reply.code(403).send({ error: `Режим откроется на ${required} уровне` });
     }
 
     const state = await createPool({
       userId: request.userId,
-      mode: mode as never,
+      mode,
       size,
       filters: {
         levels: filters.levels,
         topics: filters.topics,
         partsOfSpeech: filters.partsOfSpeech,
+        ...(mode === 'classic' && direction === 'ru_en' ? { direction: 'ru_en' as const } : {}),
       },
     });
     return reply.code(201).send(state);

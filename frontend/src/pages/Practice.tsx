@@ -13,14 +13,37 @@ import {
   Stat,
   cx,
 } from '../components/ui';
+import { DirectionSwitch } from '../components/DirectionSwitch';
+import { RatingPointsLabel } from '../components/RatingPoints';
 import { ApiError, api } from '../lib/api';
 import { MODE_LABELS, formatNumber, plural } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
-import type { CefrLevel, PracticeMode } from '../lib/types';
+import type { CefrLevel, ClassicDirection, SelectablePracticeMode } from '../lib/types';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+/** Уровни ниже профиля всегда исключены — меняется только понижением CEFR в настройках. */
+function floorExcludedLevels(cefrLevel: CefrLevel): CefrLevel[] {
+  const index = CEFR_LEVELS.indexOf(cefrLevel);
+  return index <= 0 ? [] : CEFR_LEVELS.slice(0, index);
+}
+
+function normalizeExcludedLevels(
+  stored: CefrLevel[],
+  cefrLevel: CefrLevel,
+  available: CefrLevel[],
+): CefrLevel[] {
+  const floor = floorExcludedLevels(cefrLevel).filter((level) => available.includes(level));
+  const merged = [...new Set([...floor, ...stored])].filter((level) => available.includes(level));
+  const included = available.filter((level) => !merged.includes(level));
+  if (included.length > 0) return merged;
+
+  const keep = available[available.length - 1];
+  if (!keep) return merged;
+  return merged.filter((level) => level !== keep);
+}
 
 function excludedLevelsKey(userId: string): string {
   return `lexio.practice.excludedLevels.${userId}`;
@@ -48,28 +71,40 @@ function saveExcludedLevels(userId: string | undefined, levels: CefrLevel[]): vo
   localStorage.setItem(excludedLevelsKey(userId), JSON.stringify(levels));
 }
 
+function classicDirectionKey(userId: string): string {
+  return `lexio.practice.classicDirection.${userId}`;
+}
+
+function loadClassicDirection(userId: string | undefined): ClassicDirection {
+  if (!userId) return 'en_ru';
+  try {
+    return localStorage.getItem(classicDirectionKey(userId)) === 'ru_en' ? 'ru_en' : 'en_ru';
+  } catch {
+    return 'en_ru';
+  }
+}
+
+function saveClassicDirection(userId: string | undefined, direction: ClassicDirection): void {
+  if (!userId) return;
+  localStorage.setItem(classicDirectionKey(userId), direction);
+}
+
 /** Что даёт каждый режим — коротко, чтобы выбор был осознанным. */
-const MODE_NOTES: Record<PracticeMode, string> = {
+const MODE_NOTES: Record<SelectablePracticeMode, string> = {
   classic: 'Слово по-английски — вы пишете перевод. Основной режим для набора словаря.',
-  reverse: 'Слово по-русски — вы пишете английское. Активный навык: труднее, но полезнее.',
   choice: 'Четыре варианта перевода. Можно убрать два неверных за рейтинг — жалко, но иногда спасает.',
   listening: 'Слово звучит, вы записываете перевод. Тренирует восприятие на слух.',
-  sprint: 'Только знакомые слова, без подсказок. Отработка скорости узнавания.',
   weak: 'Слова, на которых вы чаще всего ошибаетесь. Самый быстрый способ закрыть пробелы.',
   srs: 'Слова, подошедшие к сроку повторения. Именно это удерживает словарь в памяти.',
-  mixed: 'Направление и формат вопроса меняются случайно. Проверка без поддавков.',
 };
 
 /** Требование к наличию слов: режим бессмыслен, если подходящих слов нет. */
-const MODE_SOURCE: Record<PracticeMode, 'new' | 'due' | 'weak' | 'any'> = {
+const MODE_SOURCE: Record<SelectablePracticeMode, 'new' | 'due' | 'weak' | 'any'> = {
   classic: 'new',
-  reverse: 'any',
   choice: 'any',
   listening: 'any',
-  sprint: 'any',
   weak: 'weak',
   srs: 'due',
-  mixed: 'any',
 };
 
 const SIZES = [10, 15, 20, 30, 40];
@@ -78,9 +113,11 @@ export function Practice() {
   const navigate = useNavigate();
   const notify = useUi((state) => state.notify);
   const userId = useAuth((state) => state.user?.id);
+  const cefrLevel = useAuth((state) => state.user?.cefrLevel ?? 'A2');
   const overview = useAsync(() => api.practice.overview(), []);
 
-  const [mode, setMode] = useState<PracticeMode>('classic');
+  const [mode, setMode] = useState<SelectablePracticeMode>('classic');
+  const [classicDirection, setClassicDirection] = useState<ClassicDirection>(() => loadClassicDirection(userId));
   const [size, setSize] = useState(20);
   const [excludedLevels, setExcludedLevels] = useState<CefrLevel[]>(() => loadExcludedLevels(userId));
   const [topics, setTopics] = useState<string[]>([]);
@@ -92,14 +129,15 @@ export function Practice() {
 
   useEffect(() => {
     if (!data?.levels.length) return;
-    const visible = excludedLevels.filter((level) => data.levels.includes(level));
-    if (visible.length < data.levels.length) return;
-    const keep = data.levels[data.levels.length - 1];
-    if (!keep) return;
-    const next = excludedLevels.filter((level) => level !== keep);
-    setExcludedLevels(next);
-    saveExcludedLevels(userId, next);
-  }, [data, excludedLevels, userId]);
+    setExcludedLevels((prev) => {
+      const next = normalizeExcludedLevels(prev, cefrLevel, data.levels);
+      if (next.length === prev.length && next.every((level) => prev.includes(level))) return prev;
+      saveExcludedLevels(userId, next);
+      return next;
+    });
+  }, [data?.levels, cefrLevel, userId]);
+
+  const profileFloor = useMemo(() => floorExcludedLevels(cefrLevel), [cefrLevel]);
 
   const available = useMemo(() => {
     if (!data) return 0;
@@ -121,6 +159,7 @@ export function Practice() {
   const includedLevels = data.levels.filter((level) => !excludedLevels.includes(level));
 
   const toggleLevel = (level: CefrLevel) => {
+    if (profileFloor.includes(level)) return;
     const alreadyExcluded = excludedLevels.includes(level);
     if (!alreadyExcluded && includedLevels.length <= 1) {
       setLevelError('Оставьте хотя бы один уровень');
@@ -141,6 +180,7 @@ export function Practice() {
         size,
         ...(excludedLevels.length > 0 ? { levels: includedLevels } : {}),
         ...(topics.length > 0 ? { topics } : {}),
+        ...(mode === 'classic' && classicDirection === 'ru_en' ? { direction: 'ru_en' } : {}),
       });
       navigate(`/practice/session/${state.pool.id}`);
     } catch (cause) {
@@ -258,17 +298,26 @@ export function Practice() {
             />
             <p className="text-faint mb-1 text-[12px] font-medium tracking-wide uppercase">Уровни</p>
             <p className="text-soft mb-2 text-[12px] leading-relaxed">
-              Нажмите, чтобы не показывать слова этого уровня. Зачёркнутый — исключён.
+              Ниже {cefrLevel} — по профилю. Зачёркнутый — исключён.
             </p>
             <div className="mb-5">
               <div className="flex flex-wrap gap-2">
                 {data.levels.map((level) => {
                   const excluded = excludedLevels.includes(level);
+                  const locked = profileFloor.includes(level);
                   return (
                     <Chip
                       key={level}
                       excluded={excluded}
-                      ariaLabel={excluded ? `Вернуть уровень ${level}` : `Исключить уровень ${level}`}
+                      disabled={locked}
+                      title={locked ? `Уровень ниже ${cefrLevel} — измените CEFR в профиле` : undefined}
+                      ariaLabel={
+                        locked
+                          ? `Уровень ${level} исключён по профилю`
+                          : excluded
+                            ? `Вернуть уровень ${level}`
+                            : `Исключить уровень ${level}`
+                      }
                       onClick={() => toggleLevel(level)}
                     >
                       {level}
@@ -311,14 +360,29 @@ export function Practice() {
             </div>
 
             <div className="border-line mt-5 border-t pt-5">
+              {mode === 'classic' ? (
+                <div className="mb-4">
+                  <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Направление</p>
+                  <DirectionSwitch
+                    value={classicDirection}
+                    onChange={(next) => {
+                      setClassicDirection(next);
+                      saveClassicDirection(userId, next);
+                    }}
+                  />
+                </div>
+              ) : null}
               <p className="text-soft text-[13px]">
-                {MODE_LABELS[mode]}, {size} слов
+                {MODE_LABELS[mode]}
+                {mode === 'classic' ? (classicDirection === 'ru_en' ? ', с русского' : ', с английского') : ''}
+                , {size} слов
                 {multiplier > 1 ? `, очки ×${multiplier}` : ''}
                 {excludedLevels.length > 0 ? `, без ${excludedLevels.join(', ')}` : ''}
               </p>
               {mode === 'choice' && data.choiceHint ? (
                 <p className="text-faint mt-2 text-[12px] leading-relaxed">
-                  Подсказка убирает два неверных варианта и стоит {data.choiceHint.cost} рейтинга.
+                  Подсказка убирает два неверных варианта и стоит{' '}
+                  <RatingPointsLabel amount={data.choiceHint.cost} valueClassName="text-[12px]" />.
                   Если очков станет меньше порога уровня — уровень понизится.
                 </p>
               ) : null}
@@ -365,29 +429,37 @@ export function Practice() {
 function Chip({
   active = false,
   excluded = false,
+  disabled = false,
   onClick,
   children,
   ariaLabel,
+  title,
 }: {
   active?: boolean;
   excluded?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
   ariaLabel?: string;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       aria-pressed={excluded || active}
       aria-label={ariaLabel}
       className={cx(
         'rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors duration-150',
+        disabled && 'cursor-not-allowed opacity-60',
         excluded
           ? 'border-line bg-sunken text-faint line-through decoration-faint hover:border-line-strong'
           : active
             ? 'border-ink bg-ink text-surface'
             : 'border-line bg-raised text-soft hover:border-line-strong',
+        disabled && excluded && 'hover:border-line',
       )}
     >
       {children}

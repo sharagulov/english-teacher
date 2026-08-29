@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AreaChart, BarChart, HourHeatmap, Ring, StackedBar } from '../components/charts';
+import { RatingPoints, RatingPointsLabel } from '../components/RatingPoints';
+import { Switch } from '../components/Switch';
 import {
   Badge,
   Button,
@@ -24,7 +26,6 @@ import {
   formatDuration,
   formatNumber,
   formatPercent,
-  formatPoints,
   formatRelative,
   formatResponseTime,
   plural,
@@ -338,15 +339,17 @@ function WordsTab() {
           </Select>
         </div>
 
-        <label className="text-soft mt-4 flex cursor-pointer items-center gap-2 text-[13px]">
-          <input
-            type="checkbox"
+        <div className="text-soft mt-4 flex items-center justify-between gap-3 text-[13px]">
+          <span>Только избранные</span>
+          <Switch
             checked={favorite}
-            onChange={(event) => { setFavorite(event.target.checked); setPage(1); }}
-            className="accent-ink h-4 w-4"
+            aria-label="Только избранные"
+            onChange={(value) => {
+              setFavorite(value);
+              setPage(1);
+            }}
           />
-          Только избранные
-        </label>
+        </div>
       </Card>
 
       {rows.error ? <ErrorNote message={rows.error} onRetry={rows.reload} /> : null}
@@ -569,7 +572,7 @@ function RatingTab() {
                   <span className="text-[17px] font-semibold tabular-nums">{rating.level}</span>
                 </Ring>
                 <div className="space-y-2.5">
-                  <Field label="Очков" value={formatNumber(rating.points)} />
+                  <Field label="Очков" value={<RatingPoints amount={rating.points} iconClassName="text-ink" />} />
                   <Field
                     label="В уровне"
                     value={
@@ -620,12 +623,17 @@ function RatingTab() {
           <ul>
             {transactions.data?.items.map((item) => (
               <li key={item.id} className="border-line/60 flex items-center gap-4 border-b px-5 py-3 last:border-0">
-                <span className="text-success w-16 shrink-0 text-[14px] font-semibold tabular-nums">
-                  +{item.amount}
+                <span className="text-success w-20 shrink-0">
+                  <RatingPoints amount={item.amount} sign="+" valueClassName="text-[14px] font-semibold text-success" />
                 </span>
                 <span className="text-ink min-w-0 flex-1 text-[13px]">{transactionLabel(item.reason)}</span>
-                <span className="text-faint shrink-0 text-[12px] tabular-nums">
-                  рейтинг {formatNumber(item.balanceAfter)}
+                <span className="text-faint inline-flex shrink-0 items-center gap-1 text-[12px]">
+                  <RatingPoints
+                    amount={item.balanceAfter}
+                    iconSize={12}
+                    iconClassName="text-faint"
+                    valueClassName="text-[12px] text-faint"
+                  />
                 </span>
                 <span className="text-faint hidden shrink-0 text-[12px] sm:inline">{formatDateTime(item.createdAt)}</span>
               </li>
@@ -664,8 +672,8 @@ function AchievementsTab() {
                 {done ? <Badge tone="success">открыто</Badge> : <Badge>{item.threshold}</Badge>}
               </div>
               <p className="text-soft mt-1.5 text-[13px] leading-relaxed">{item.description}</p>
-              <p className="text-faint mt-2.5 text-[12px] tabular-nums">
-                +{formatPoints(item.points)}
+              <p className="text-faint mt-2.5 text-[12px]">
+                <RatingPointsLabel amount={item.points} sign="+" valueClassName="text-[12px]" />
                 {item.unlockedAt ? ` · ${formatRelative(item.unlockedAt)}` : ''}
               </p>
             </Card>
@@ -676,7 +684,7 @@ function AchievementsTab() {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2">
       <span className="text-faint text-[12px]">{label}</span>

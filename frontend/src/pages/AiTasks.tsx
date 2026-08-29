@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ring } from '../components/charts';
 import {
+  DirectionSwitch,
+  directionToSentenceTask,
+  isSentenceTaskType,
+  sentenceTaskDirection,
+} from '../components/DirectionSwitch';
+import { RatingPointsLabel } from '../components/RatingPoints';
+import {
   Badge,
   Button,
   Card,
@@ -14,7 +21,7 @@ import {
   cx,
 } from '../components/ui';
 import { ApiError, api } from '../lib/api';
-import { formatDateTime, formatPoints, plural } from '../lib/format';
+import { formatDateTime, plural } from '../lib/format';
 import { speak } from '../lib/speech';
 import type { AiResult, AiTask, AiTaskType, CefrLevel } from '../lib/types';
 import { useAsync } from '../lib/useAsync';
@@ -23,8 +30,8 @@ import { useUi } from '../store/ui';
 
 const LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-/** Разбор слова запускается из словаря — здесь его выбрать нельзя. */
-const SELECTABLE = (type: AiTaskType): boolean => type !== 'word_deep_dive';
+/** Разбор слова запускается из словаря — здесь его выбрать нельзя. sentence_en_ru объединён с sentence_ru_en через DirectionSwitch. */
+const SELECTABLE = (type: AiTaskType): boolean => type !== 'word_deep_dive' && type !== 'sentence_en_ru';
 
 export function AiTasks() {
   const user = useAuth((state) => state.user);
@@ -75,7 +82,7 @@ export function AiTasks() {
         <Card>
           <EmptyState
             title="Модуль ИИ выключен"
-            description="Добавьте OPENAI_API_KEY в backend/.env и перезапустите сервер — задания, проверка ответов и диалог с репетитором заработают."
+            description="Добавьте OPENAI_API_KEY в backend/.env и перезапустите сервер — задания и проверка ответов заработают."
           />
         </Card>
       </div>
@@ -147,20 +154,46 @@ export function AiTasks() {
                 <button
                   key={item.type}
                   type="button"
-                  onClick={() => setType(item.type)}
+                  onClick={() => {
+                    if (item.type === 'sentence_ru_en') {
+                      setType(
+                        directionToSentenceTask(isSentenceTaskType(type) ? sentenceTaskDirection(type) : 'ru_en'),
+                      );
+                    } else {
+                      setType(item.type);
+                    }
+                  }}
                   className={cx(
                     'w-full rounded-xl border px-3 py-2.5 text-left transition-colors duration-150',
-                    type === item.type ? 'border-ink' : 'border-transparent hover:bg-sunken',
+                    type === item.type || (item.type === 'sentence_ru_en' && isSentenceTaskType(type))
+                      ? 'border-ink'
+                      : 'border-transparent hover:bg-sunken',
                   )}
                 >
-                  <span className="text-ink text-[13px] font-medium">{item.label}</span>
+                  <span className="text-ink text-[13px] font-medium">
+                    {item.type === 'sentence_ru_en' ? 'Перевод предложения' : item.label}
+                  </span>
                 </button>
               ))}
             </div>
 
+            {isSentenceTaskType(type) ? (
+              <div className="border-line mt-4 border-t pt-4">
+                <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Направление</p>
+                <DirectionSwitch
+                  value={sentenceTaskDirection(type)}
+                  onChange={(next) => setType(directionToSentenceTask(next))}
+                />
+              </div>
+            ) : null}
+
             {selectedType ? (
               <p className="text-soft border-line mt-4 border-t pt-4 text-[13px] leading-relaxed">
-                {selectedType.description}
+                {isSentenceTaskType(type)
+                  ? sentenceTaskDirection(type) === 'ru_en'
+                    ? 'ИИ даёт русское предложение — переведите его на английский.'
+                    : 'ИИ даёт английское предложение — переведите его на русский по смыслу.'
+                  : selectedType.description}
               </p>
             ) : null}
 
@@ -506,8 +539,9 @@ function ResultPanel({ task, result, onNext }: { task: AiTask; result: AiResult;
             {result.verdict}
           </p>
           {result.praise ? <p className="text-soft mt-1.5 text-[13px]">{result.praise}</p> : null}
-          <p className="text-faint mt-2 text-[12px] tabular-nums">
-            +{formatPoints(result.reward.points)} · уровень {result.rating.level}
+          <p className="text-faint mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+            <RatingPointsLabel amount={result.reward.points} sign="+" valueClassName="text-[12px]" />
+            <span>· уровень {result.rating.level}</span>
           </p>
         </div>
       </div>

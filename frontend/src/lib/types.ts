@@ -1,6 +1,11 @@
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
-export type PracticeMode = 'classic' | 'reverse' | 'choice' | 'listening' | 'sprint' | 'weak' | 'srs' | 'mixed';
+export type SelectablePracticeMode = 'classic' | 'choice' | 'listening' | 'weak' | 'srs';
+
+/** reverse / sprint / mixed — только исторические пуллы и статистика. */
+export type PracticeMode = SelectablePracticeMode | 'reverse' | 'sprint' | 'mixed';
+
+export type ClassicDirection = 'en_ru' | 'ru_en';
 
 export type WordStatus = 'new' | 'learning' | 'review' | 'mastered' | 'leech';
 
@@ -150,7 +155,7 @@ export interface PracticeOverview {
     modeMultipliers: Record<PracticeMode, number>;
   };
   activePool: PoolState | null;
-  modes: { mode: PracticeMode; label: string; unlockLevel: number; unlocked: boolean }[];
+  modes: { mode: SelectablePracticeMode; label: string; unlockLevel: number; unlocked: boolean }[];
   topics: { topic: string; count: number }[];
   choiceHint: { cost: number; description: string };
 }

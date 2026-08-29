@@ -1,8 +1,9 @@
-import { ArrowLeft, CircleHelp, Volume2, Wand2 } from 'lucide-react';
+import { ArrowLeft, CircleHelp, Volume2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AiExampleIndicator, isAiGeneratedExample } from '../components/AiExampleIndicator';
 import { DislikeButton } from '../components/DislikeButton';
+import { RatingPoints, RatingPointsLabel } from '../components/RatingPoints';
 import { Badge, Button, Card, ErrorNote, Kbd, LinkButton, Loading, Progress, Stat, cx } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import {
@@ -13,7 +14,6 @@ import {
   formatNumber,
   formatPercent,
   plural,
-  pointsWord,
   splitAroundWord,
 } from '../lib/format';
 import { speak, speechSupported, stopSpeaking } from '../lib/speech';
@@ -311,8 +311,13 @@ export function Session() {
           <span className="text-soft text-[13px] font-medium tabular-nums">
             {solved}/{total}
           </span>
-          <span className="text-faint hidden text-[13px] tabular-nums sm:inline" title="Очки рейтинга">
-            {formatNumber(user?.points ?? 0)}
+          <span className="hidden sm:inline">
+            <RatingPoints
+              amount={user?.points ?? 0}
+              iconSize={13}
+              iconClassName="text-faint"
+              valueClassName="text-[13px] text-faint"
+            />
           </span>
         </div>
       </header>
@@ -495,6 +500,7 @@ function QuestionForm({
             <Button variant="secondary" size="md" disabled={sending || hinting} onClick={onGiveUp}>
               <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
               Не знаю
+              <Kbd>Esc</Kbd>
             </Button>
             {!question.hintUsed && question.hintCost != null ? (
               <Button
@@ -504,17 +510,16 @@ function QuestionForm({
                 onClick={onHint}
                 title={
                   question.canAffordHint
-                    ? 'Убрать два неверных варианта'
-                    : `Нужно ${question.hintCost} очков рейтинга`
+                    ? `Списать ${formatNumber(question.hintCost)} рейтинга`
+                    : `Нужно ${formatNumber(question.hintCost)} очков рейтинга`
                 }
               >
-                <Wand2 size={16} strokeWidth={1.75} aria-hidden="true" />
-                {hinting ? '…' : `−${formatNumber(question.hintCost)}`}
+                {hinting ? '…' : 'Убрать 2 неверных'}
+                {!hinting && question.hintCost != null ? (
+                  <RatingPoints amount={question.hintCost} sign="−" iconClassName="text-faint" valueClassName="text-faint" />
+                ) : null}
               </Button>
             ) : null}
-            <span className="text-faint text-[12px]">
-              <Kbd>Esc</Kbd>
-            </span>
           </div>
         </div>
       ) : (
@@ -548,10 +553,8 @@ function QuestionForm({
           <Button variant="secondary" size="md" disabled={sending} onClick={onGiveUp}>
             <CircleHelp size={16} strokeWidth={1.75} aria-hidden="true" />
             Не знаю
-          </Button>
-          <span className="text-faint text-[12px]">
             <Kbd>Esc</Kbd>
-          </span>
+          </Button>
         </div>
       ) : null}
     </div>
@@ -613,8 +616,15 @@ function Feedback({
 
           {result.reward.points > 0 ? (
             <div className="text-right">
-              <p className="text-ink text-[22px] font-semibold tabular-nums">+{result.reward.points}</p>
-              <p className="text-faint text-[12px]">{pointsWord(result.reward.points)} рейтинга</p>
+              <RatingPoints
+                amount={result.reward.points}
+                sign="+"
+                iconSize={18}
+                valueClassName="text-[22px] font-semibold text-ink"
+              />
+              <p className="text-faint mt-0.5 text-[12px]">
+                <RatingPointsLabel amount={result.reward.points} valueClassName="text-[12px]" />
+              </p>
               <p className="text-faint mt-1 text-[12px] tabular-nums">
                 {result.rating.progress.isMax
                   ? `ур. ${result.rating.level} · максимум`
@@ -777,12 +787,26 @@ function Senses({ senses }: { senses: AnswerResult['word']['senses'] }) {
 // ─────────────────────────────── Итоги пулла ───────────────────────────────
 
 function Summary({ state, summary }: { state: PoolState; summary: AnswerResult['poolSummary'] | null }) {
+  const navigate = useNavigate();
   const pool = state.pool;
   const accuracy = useMemo(() => {
     if (summary) return summary.accuracy;
     const total = pool.correctCount + pool.wrongCount;
     return total > 0 ? pool.correctCount / total : null;
   }, [summary, pool]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.repeat) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      event.preventDefault();
+      navigate('/practice');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [navigate]);
 
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-16">
@@ -802,13 +826,18 @@ function Summary({ state, summary }: { state: PoolState; summary: AnswerResult['
           <Stat label="Точность" value={formatPercent(accuracy, 0)} tone={pool.wrongCount === 0 ? 'success' : undefined} />
           <Stat label="Ошибок" value={formatNumber(summary?.wrong ?? pool.wrongCount)} tone={pool.wrongCount > 0 ? 'danger' : undefined} />
           <Stat label="Время" value={summary ? formatDuration(summary.durationMs) : '—'} />
-          <Stat label="Очки рейтинга" value={`+${formatNumber(summary?.points ?? pool.pointsEarned)}`} tone="accent" />
+          <Stat
+            label="Очки рейтинга"
+            value={<RatingPoints amount={summary?.points ?? pool.pointsEarned} sign="+" />}
+            tone="accent"
+          />
         </div>
       </Card>
 
       <div className="mt-6 flex flex-wrap gap-2.5">
         <LinkButton to="/practice" variant="primary" size="lg">
           Следующий пулл
+          <Kbd>Enter</Kbd>
         </LinkButton>
         <LinkButton to="/stats" variant="secondary" size="lg">
           Статистика

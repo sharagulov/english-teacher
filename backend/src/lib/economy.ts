@@ -14,9 +14,13 @@
 import type { MatchType } from './text.js';
 import type { CefrLevel } from './levels.js';
 
+/** Исторические режимы остаются в типе: старые пуллы и статистика их ещё показывают. */
 export type PracticeMode = 'classic' | 'reverse' | 'choice' | 'listening' | 'sprint' | 'weak' | 'srs' | 'mixed';
 
-export const PRACTICE_MODES: PracticeMode[] = ['classic', 'reverse', 'choice', 'listening', 'sprint', 'weak', 'srs', 'mixed'];
+/** Режимы, которые можно выбрать и создать. reverse / sprint / mixed больше не стартуются. */
+export const PRACTICE_MODES = ['classic', 'choice', 'listening', 'weak', 'srs'] as const satisfies readonly PracticeMode[];
+
+export type SelectablePracticeMode = (typeof PRACTICE_MODES)[number];
 
 /** Базовая награда за слово в зависимости от его уровня. */
 const BASE_BY_LEVEL: Record<CefrLevel, number> = {
@@ -55,15 +59,12 @@ export const MODE_LABELS: Record<PracticeMode, string> = {
  * Режим открывается по достижении игрового уровня.
  * Повторение доступно сразу: без него изученное просто забывается.
  */
-export const MODE_UNLOCK_LEVEL: Record<PracticeMode, number> = {
+export const MODE_UNLOCK_LEVEL: Record<SelectablePracticeMode, number> = {
   classic: 1,
   choice: 1,
   srs: 1,
-  reverse: 2,
   weak: 2,
   listening: 3,
-  sprint: 4,
-  mixed: 5,
 };
 
 export interface RewardInput {
@@ -315,7 +316,7 @@ const FREEZE_REWARD: LevelReward = {
 
 /** Полный список того, что открывает рост уровня — для экрана наград. */
 export function levelRewards(): LevelReward[] {
-  const modes: LevelReward[] = (Object.keys(MODE_UNLOCK_LEVEL) as PracticeMode[])
+  const modes: LevelReward[] = (Object.keys(MODE_UNLOCK_LEVEL) as SelectablePracticeMode[])
     .filter((mode) => MODE_UNLOCK_LEVEL[mode] > 1)
     .map((mode) => ({
       code: `mode_${mode}`,
