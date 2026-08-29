@@ -27,6 +27,8 @@ git fetch --prune origin
 git checkout "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 
+# npm ci иногда падает с ENOTEMPTY на полустёртом node_modules (lucide-react и др.).
+rm -rf node_modules frontend/node_modules backend/node_modules
 npm ci
 npm run db:generate --workspace backend
 npm run db:push --workspace backend
