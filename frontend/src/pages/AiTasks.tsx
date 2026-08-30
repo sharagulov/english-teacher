@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Ring } from '../components/charts';
 import {
   DirectionSwitch,
@@ -51,6 +52,7 @@ export function AiTasks() {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<AiResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   // Текст диктанта приходит отдельным запросом, чтобы его нельзя было прочитать.
   const listeningText = useRef<string | null>(null);
@@ -136,6 +138,7 @@ export function AiTasks() {
   };
 
   const selectedType = meta.data.types.find((item) => item.type === type);
+  const historyCount = history.data?.items.length ?? 0;
 
   return (
     <div>
@@ -288,47 +291,67 @@ export function AiTasks() {
 
           {/* ─── История ─── */}
           <div className="mt-8">
-            <SectionTitle title="Выполненные задания" />
-            {history.loading && !history.data ? (
-              <Loading label="" />
-            ) : (history.data?.items.length ?? 0) === 0 ? (
-              <Card>
-                <EmptyState title="Пока пусто" description="Выполненные задания появятся здесь с оценками и разбором." />
-              </Card>
-            ) : (
-              <ul className="space-y-2">
-                {history.data?.items.map((item) => (
-                  <li key={item.id}>
-                    <Card className="flex flex-wrap items-center gap-x-4 gap-y-2" padded={false}>
-                      <div className="flex w-full items-center gap-4 p-4">
-                        <span
-                          className={cx(
-                            'w-11 shrink-0 text-center text-[15px] font-semibold tabular-nums',
-                            item.score >= 90 ? 'text-success' : item.score >= 70 ? 'text-ink' : 'text-danger',
-                          )}
-                        >
-                          {item.score}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-ink truncate text-[13px]">{item.answer}</p>
-                          <p className="text-faint mt-0.5 text-[12px]">
-                            {item.label} · {item.level} · {formatDateTime(item.createdAt)}
-                          </p>
+            <button
+              type="button"
+              onClick={() => setHistoryExpanded((open) => !open)}
+              aria-expanded={historyExpanded}
+              className="hover:bg-sunken -mx-2 mb-4 flex w-[calc(100%+1rem)] items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors"
+            >
+              <h2 className="text-ink flex-1 text-[17px] font-semibold tracking-tight">Выполненные задания</h2>
+              {(historyCount > 0) ? (
+                <span className="text-faint text-[13px] tabular-nums">{historyCount}</span>
+              ) : null}
+              <ChevronDown
+                className={cx(
+                  'text-faint size-4 shrink-0 transition-transform duration-200',
+                  historyExpanded && 'rotate-180',
+                )}
+                aria-hidden="true"
+              />
+            </button>
+
+            {historyExpanded ? (
+              history.loading && !history.data ? (
+                <Loading label="" />
+              ) : (history.data?.items.length ?? 0) === 0 ? (
+                <Card>
+                  <EmptyState title="Пока пусто" description="Выполненные задания появятся здесь с оценками и разбором." />
+                </Card>
+              ) : (
+                <ul className="space-y-2">
+                  {history.data?.items.map((item) => (
+                    <li key={item.id}>
+                      <Card className="flex flex-wrap items-center gap-x-4 gap-y-2" padded={false}>
+                        <div className="flex w-full items-center gap-4 p-4">
+                          <span
+                            className={cx(
+                              'w-11 shrink-0 text-center text-[15px] font-semibold tabular-nums',
+                              item.score >= 90 ? 'text-success' : item.score >= 70 ? 'text-ink' : 'text-danger',
+                            )}
+                          >
+                            {item.score}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-ink truncate text-[13px]">{item.answer}</p>
+                            <p className="text-faint mt-0.5 text-[12px]">
+                              {item.label} · {item.level} · {formatDateTime(item.createdAt)}
+                            </p>
+                          </div>
+                          {item.points > 0 ? (
+                            <span className="text-soft shrink-0 text-[13px] tabular-nums">+{item.points}</span>
+                          ) : null}
                         </div>
-                        {item.points > 0 ? (
-                          <span className="text-soft shrink-0 text-[13px] tabular-nums">+{item.points}</span>
+                        {item.feedback.verdict ? (
+                          <p className="text-soft border-line w-full border-t px-4 py-3 text-[13px]">
+                            {item.feedback.verdict}
+                          </p>
                         ) : null}
-                      </div>
-                      {item.feedback.verdict ? (
-                        <p className="text-soft border-line w-full border-t px-4 py-3 text-[13px]">
-                          {item.feedback.verdict}
-                        </p>
-                      ) : null}
-                    </Card>
-                  </li>
-                ))}
-              </ul>
-            )}
+                      </Card>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : null}
           </div>
         </section>
       </div>

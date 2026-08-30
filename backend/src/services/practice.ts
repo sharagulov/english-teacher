@@ -217,15 +217,17 @@ async function selectPoolWords(input: CreatePoolInput, levels: CefrLevel[]): Pro
     onlyWeak: mode === 'weak',
   });
 
-  // Если повторять пока нечего, добираем состав новыми словами.
-  const newCount = size - review.length;
-  const fresh = await selectNewWords(userId, levels, filters, newCount);
+  const reviewOnlyMode = mode === 'srs' || mode === 'weak';
+  let words = review.map((r) => r.word);
 
-  const words = [...review.map((r) => r.word), ...fresh];
+  // В обычных режимах недостающие места добираем новыми словами.
+  if (!reviewOnlyMode) {
+    const fresh = await selectNewWords(userId, levels, filters, size - words.length);
+    words = [...words, ...fresh];
+  }
 
-  // Режимам «повторение» и «слабые слова» новые слова не подмешиваем,
-  // но если база пуста, лучше показать хоть что-то, чем пустой экран.
-  if (words.length < size && mode !== 'srs' && mode !== 'weak') {
+  // Если новых и просроченных не хватило — добираем из общей очереди повторения.
+  if (words.length < size && !reviewOnlyMode) {
     const extra = await selectReviewWords(userId, levels, filters, size - words.length);
     for (const candidate of extra) {
       if (!words.some((w) => w.id === candidate.word.id)) words.push(candidate.word);
