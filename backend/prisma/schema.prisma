@@ -1,6 +1,6 @@
-// Lexio — схема данных.
-// SQLite: перечисления и массивы не поддерживаются, поэтому используются String
-// и JSON-строки (в комментариях указан ожидаемый набор значений).
+
+
+
 
 generator client {
   provider = "prisma-client"
@@ -9,10 +9,10 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  // URL задаётся в prisma.config.ts через переменную DATABASE_URL
+  
 }
 
-// ─────────────────────────────── Пользователь ───────────────────────────────
+
 
 model User {
   id           String @id @default(cuid())
@@ -20,27 +20,27 @@ model User {
   passwordHash String
   name         String
 
-  // Прогресс: очки рейтинга задают уровень (1..1000). Тратятся на подсказку в «Выборе».
+  
   points Int @default(50)
   level  Int @default(1)
 
-  // Ежедневная серия
+  
   dailyStreak     Int     @default(0)
   longestStreak   Int     @default(0)
-  lastActiveDay   String? // YYYY-MM-DD в часовом поясе пользователя
+  lastActiveDay   String? 
   streakFreezes   Int     @default(1)
   dailyGoalWords  Int     @default(20)
-  lastRewardedDay String? // день, за который уже начислен бонус серии
+  lastRewardedDay String? 
 
-  // Настройки
-  cefrLevel      String  @default("A2") // A1 | A2 | B1 | B2 | C1 | C2
-  typoTolerance  Boolean @default(true) // прощать 1 опечатку
+  
+  cefrLevel      String  @default("A2") 
+  typoTolerance  Boolean @default(true) 
   soundEnabled   Boolean @default(true)
   autoAdvance    Boolean @default(true)
   showTranscript Boolean @default(true)
-  timezoneOffset Int     @default(180) // минуты от UTC, для корректных «дней»
+  timezoneOffset Int     @default(180) 
 
-  // Суммарный расход на OpenAI (оценка по тарифам модели)
+  
   aiInputTokens  Int   @default(0)
   aiOutputTokens Int   @default(0)
   aiCostUsd      Float @default(0)
@@ -63,32 +63,32 @@ model User {
   @@index([email])
 }
 
-// ──────────────────────────────── Словарь ────────────────────────────────
+
 
 model Word {
   id            Int     @id @default(autoincrement())
-  text          String // английское слово/выражение в нижнем регистре
-  translations  String // JSON-массив русских переводов, первый — основной
-  partOfSpeech  String? // noun | verb | adjective | adverb | phrase | ...
-  level         String  @default("A2") // A1..C2
-  topic         String? // тематическая группа
-  transcription String? // /ˈeksəmpl/
-  audioUrl      String? // ссылка на озвучку, если нашлась в открытом источнике
-  gloss         String? // краткое пояснение смысла на английском
-  senses        String? // JSON: [{ sense, translations[] }] — значения по отдельности
-  example       String? // пример употребления на английском
-  exampleRu     String? // перевод примера
-  frequencyRank Int? // чем меньше, тем частотнее слово
+  text          String 
+  translations  String 
+  partOfSpeech  String? 
+  level         String  @default("A2") 
+  topic         String? 
+  transcription String? 
+  audioUrl      String? 
+  gloss         String? 
+  senses        String? 
+  example       String? 
+  exampleRu     String? 
+  frequencyRank Int? 
 
-  // Служебное
-  source         String    @default("wikdict") // wikdict | ai | user
-  license        String? // лицензия исходных данных (для атрибуции)
-  pack           String? // название набора, если слово пришло из пака
-  isFunctionWord Boolean   @default(false) // артикли, предлоги и пр. — не для перевода
-  enrichedAt     DateTime? // когда подтянуты транскрипция/пример
-  examplesAt     DateTime? // когда слово прогонялось по корпусу примеров (даже если ничего не нашлось)
+  
+  source         String    @default("wikdict") 
+  license        String? 
+  pack           String? 
+  isFunctionWord Boolean   @default(false) 
+  enrichedAt     DateTime? 
+  examplesAt     DateTime? 
 
-  // Приватные слова пользователя (общие слова словаря — ownerId = null)
+  
   ownerId String?
   owner   User?   @relation("WordOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
@@ -110,28 +110,28 @@ model Word {
   @@index([examplesAt])
 }
 
-// ──────────────────────── Примеры употребления слова ────────────────────────
+
 
 model WordExample {
   id     Int  @id @default(autoincrement())
   wordId Int
   word   Word @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
-  text        String // короткая фраза на английском с этим словом
-  translation String? // перевод на русский, если он есть в источнике
-  source      String  @default("tatoeba") // tatoeba | dictionary | ai
-  sourceRef   String? // ссылка на исходную фразу — для атрибуции
-  position    Int     @default(0) // порядок показа: сначала самые удачные
+  text        String 
+  translation String? 
+  source      String  @default("tatoeba") 
+  sourceRef   String? 
+  position    Int     @default(0) 
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Один и тот же текст у слова не дублируем: примеры доливаются из разных источников.
+  
   @@unique([wordId, text])
   @@index([wordId, position])
 }
 
-// ─────────────────────── Прогресс пользователя по слову ───────────────────────
+
 
 model UserWord {
   id     Int    @id @default(autoincrement())
@@ -140,7 +140,7 @@ model UserWord {
   wordId Int
   word   Word   @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
-  // Счётчики
+  
   timesSeen     Int @default(0)
   timesCorrect  Int @default(0)
   timesWrong    Int @default(0)
@@ -148,25 +148,25 @@ model UserWord {
   bestStreak    Int @default(0)
   hintsUsed     Int @default(0)
 
-  // Модель памяти (SM-2 с доработками)
-  strength     Float @default(0) // 0..1 — насколько надёжно слово выучено
-  ease         Float @default(2.5) // фактор легкости
+  
+  strength     Float @default(0) 
+  ease         Float @default(2.5) 
   intervalDays Float @default(0)
   repetitions  Int   @default(0)
-  lapses       Int   @default(0) // сколько раз забывал после успеха
+  lapses       Int   @default(0) 
 
-  status String @default("new") // new | learning | review | mastered | leech
+  status String @default("new") 
 
   avgResponseMs  Int       @default(0)
   lastResult     Boolean?
   lastSeenAt     DateTime?
   firstSeenAt    DateTime?
-  learnedAt      DateTime? // когда впервые перешло в review
+  learnedAt      DateTime? 
   masteredAt     DateTime?
   dueAt          DateTime  @default(now())
   isFavorite     Boolean   @default(false)
   isIgnored      Boolean   @default(false)
-  // 0 — обычная выдача, 1 — реже в пуллах, 2 — почти не показывать
+  
   dislikeLevel   Int       @default(0)
 
   createdAt DateTime @default(now())
@@ -179,18 +179,18 @@ model UserWord {
   @@index([userId, strength])
 }
 
-// ──────────────────────────── Пуллы и попытки ────────────────────────────
+
 
 model Pool {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  size      Int // 10 | 20 | 30 | ...
-  mode      String // classic | reverse | choice | listening | sprint | weak | srs | mixed
-  status    String  @default("active") // active | completed | abandoned
-  filters   String? // JSON: { levels, topics, onlyDue, ... }
-  ordinal   Int     @default(1) // номер пулла подряд для этого пользователя
+  size      Int 
+  mode      String 
+  status    String  @default("active") 
+  filters   String? 
+  ordinal   Int     @default(1) 
 
   correctCount Int @default(0)
   wrongCount   Int @default(0)
@@ -221,9 +221,9 @@ model PoolItem {
   lastShownAt  DateTime?
   solvedAt     DateTime?
 
-  /** Зафиксированные варианты в режиме выбора (JSON-массив из 4 строк). */
+  
   choicesJson String?
-  /** Два скрытых неверных варианта после платной подсказки (JSON-массив). */
+  
   hintHidden  String?
 
   @@unique([poolId, wordId])
@@ -239,18 +239,18 @@ model Attempt {
   poolId String?
   pool   Pool?  @relation(fields: [poolId], references: [id], onDelete: SetNull)
 
-  mode      String // classic | reverse | choice | listening | sprint | weak | srs
-  direction String // en_ru | ru_en | audio_en
+  mode      String 
+  direction String 
   question  String
   expected  String
   given     String
   isCorrect Boolean
-  matchType String // exact | alternative | typo | wrong | skipped
+  matchType String 
   responseMs Int    @default(0)
   hintsUsed  Int    @default(0)
   points     Int    @default(0)
 
-  /** Снимок состояния до ответа — для отмены неверного ответа. */
+  
   undoSnapshot String?
   undoneAt     DateTime?
 
@@ -261,18 +261,18 @@ model Attempt {
   @@index([poolId])
 }
 
-// ───────────────────────────── Рейтинг ─────────────────────────────
 
-// История начислений очков: рейтинг только растёт, поэтому amount всегда > 0,
-// а balanceAfter — это рейтинг после начисления.
+
+
+
 model Transaction {
   id     Int    @id @default(autoincrement())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   amount       Int
-  reason       String // correct_answer | pool_complete | daily_streak | achievement:... | ai:... | ...
-  meta         String? // JSON с деталями
+  reason       String 
+  meta         String? 
   balanceAfter Int
 
   createdAt DateTime @default(now())
@@ -286,7 +286,7 @@ model UserAchievement {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  code       String // определение достижения хранится в коде
+  code       String 
   progress   Int      @default(0)
   unlockedAt DateTime @default(now())
 
@@ -294,20 +294,20 @@ model UserAchievement {
   @@index([userId])
 }
 
-// ──────────────────────── Ежедневная агрегация ────────────────────────
+
 
 model DailyStat {
   id     Int    @id @default(autoincrement())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  day String // YYYY-MM-DD
+  day String 
 
   attempts   Int @default(0)
   correct    Int @default(0)
   wrong      Int @default(0)
   newWords   Int @default(0)
-  learned    Int @default(0) // перешло в review
+  learned    Int @default(0) 
   mastered   Int @default(0)
   points     Int @default(0)
   timeMs     Int @default(0)
@@ -321,19 +321,19 @@ model DailyStat {
   @@index([userId, day])
 }
 
-// ────────────────────────────── ИИ-задания ──────────────────────────────
+
 
 model AiTask {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // sentence_ru_en | sentence_en_ru | grammar_quiz | cloze | writing | listening | word_deep_dive
+  
   type    String
   level   String
   topic   String?
-  payload String // JSON с содержимым задания
-  usedWordIds String? // JSON-массив id слов, задействованных в задании
+  payload String 
+  usedWordIds String? 
 
   createdAt DateTime @default(now())
 
@@ -351,9 +351,9 @@ model AiSubmission {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   answer    String
-  score     Int // 0..100
+  score     Int 
   isCorrect Boolean
-  feedback  String // JSON: { verdict, errors[], better, explanation }
+  feedback  String 
   points    Int    @default(0)
 
   createdAt DateTime @default(now())
@@ -368,7 +368,7 @@ model ChatSession {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   title    String
-  scenario String // free | cafe | airport | interview | doctor | smalltalk | custom
+  scenario String 
   level    String
 
   createdAt DateTime @default(now())
@@ -384,9 +384,9 @@ model ChatMessage {
   sessionId String
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  role       String // user | assistant
+  role       String 
   content    String
-  correction String? // JSON с разбором ошибок в реплике пользователя
+  correction String? 
 
   createdAt DateTime @default(now())
 

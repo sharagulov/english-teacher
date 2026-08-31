@@ -1,18 +1,9 @@
 import { Sparkles } from 'lucide-react';
-
-/** Маркер для примеров, сгенерированных ИИ (не из корпуса Tatoeba). */
 export function AiExampleIndicator() {
-  return (
-    <span
-      className="text-faint inline-flex shrink-0"
-      title="Предложение сгенерировано"
-      aria-label="Предложение сгенерировано"
-    >
-      <Sparkles size={12} strokeWidth={1.75} aria-hidden="true" />
-    </span>
-  );
+    return (<span className="text-faint inline-flex shrink-0" title="Предложение сгенерировано" aria-label="Предложение сгенерировано">
+      <Sparkles size={12} strokeWidth={1.75} aria-hidden="true"/>
+    </span>);
 }
-
 export function isAiGeneratedExample(source: string): boolean {
-  return source === 'ai';
+    return source === 'ai';
 }
