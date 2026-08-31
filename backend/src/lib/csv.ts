@@ -1,65 +1,61 @@
-/** Минимальный CSV-парсер с поддержкой кавычек и переводов строк внутри полей. */
 export function parseCsv(input: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-
-  const text = input.replace(/^\uFEFF/, '');
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]!;
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    const text = input.replace(/^\uFEFF/, '');
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]!;
+        if (inQuotes) {
+            if (char === '"') {
+                if (text[i + 1] === '"') {
+                    field += '"';
+                    i++;
+                }
+                else {
+                    inQuotes = false;
+                }
+            }
+            else {
+                field += char;
+            }
+            continue;
         }
-      } else {
-        field += char;
-      }
-      continue;
+        if (char === '"') {
+            inQuotes = true;
+        }
+        else if (char === ',') {
+            row.push(field);
+            field = '';
+        }
+        else if (char === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        }
+        else if (char !== '\r') {
+            field += char;
+        }
     }
-
-    if (char === '"') {
-      inQuotes = true;
-    } else if (char === ',') {
-      row.push(field);
-      field = '';
-    } else if (char === '\n') {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-    } else if (char !== '\r') {
-      field += char;
+    if (field.length > 0 || row.length > 0) {
+        row.push(field);
+        rows.push(row);
     }
-  }
-
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  return rows;
+    return rows;
 }
-
-/** Парсит CSV с шапкой в массив объектов. */
 export function parseCsvObjects(input: string): Record<string, string>[] {
-  const rows = parseCsv(input);
-  const header = rows.shift();
-  if (!header) return [];
-
-  return rows
-    .filter((r) => r.some((cell) => cell.trim().length > 0))
-    .map((r) => {
-      const obj: Record<string, string> = {};
-      header.forEach((key, index) => {
-        obj[key.trim()] = (r[index] ?? '').trim();
-      });
-      return obj;
+    const rows = parseCsv(input);
+    const header = rows.shift();
+    if (!header)
+        return [];
+    return rows
+        .filter((r) => r.some((cell) => cell.trim().length > 0))
+        .map((r) => {
+        const obj: Record<string, string> = {};
+        header.forEach((key, index) => {
+            obj[key.trim()] = (r[index] ?? '').trim();
+        });
+        return obj;
     });
 }

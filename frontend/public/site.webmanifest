@@ -1,0 +1,23 @@
+{
+  "name": "Lexio",
+  "short_name": "Lexio",
+  "description": "Тренажёр английского языка: интервальное повторение словаря и задания от ИИ.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "theme_color": "#14161a",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "lang": "ru"
+}
