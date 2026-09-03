@@ -83,6 +83,25 @@ export function Select({ label, className, id, children, ...rest }: SelectProps)
       </select>
     </label>);
 }
+export function SegmentedControl<T extends string>({ value, onChange, options, className, 'aria-label': ariaLabel, }: {
+    value: T;
+    onChange: (value: T) => void;
+    options: readonly {
+        value: T;
+        label: ReactNode;
+    }[];
+    className?: string;
+    'aria-label'?: string;
+}) {
+    return (<div role="group" aria-label={ariaLabel} className={cx('flex rounded-xl border border-line bg-sunken p-1', className)}>
+      {options.map((option) => {
+            const selected = value === option.value;
+            return (<button key={option.value} type="button" aria-pressed={selected} onClick={() => onChange(option.value)} className={cx('min-w-0 flex-1 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors duration-150', selected ? 'bg-ink text-surface shadow-sm' : 'text-soft hover:text-ink')}>
+            {option.label}
+          </button>);
+        })}
+    </div>);
+}
 export function Card({ className, children, padded = true, }: {
     className?: string;
     children: ReactNode;

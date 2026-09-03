@@ -49,7 +49,7 @@ export function Dashboard() {
               <p className="mb-1.5 text-[24px] font-medium tabular-nums sm:mb-2 sm:text-[28px]" style={{ color: 'var(--dash-hero-muted)' }}>
                 /{today.goal}
               </p>
-              {goalDone ? <span className="mb-3 text-[13px] font-medium text-[#7dffb3]">цель ↗</span> : null}
+              {goalDone ? <span className="mb-3 text-[13px] font-medium" style={{ color: 'var(--dash-hero-muted)' }}>цель ↗</span> : null}
             </div>
             <p className="mt-3 text-[13px]" style={{ color: 'var(--dash-hero-muted)' }}>
               {today.attempts === 0
@@ -59,7 +59,7 @@ export function Dashboard() {
             </p>
           </div>
 
-          <Link to="/practice" className="inline-flex h-14 shrink-0 items-center justify-center rounded-2xl bg-white px-8 text-[16px] font-medium text-[#141414] transition-opacity hover:opacity-90 active:scale-[0.98]">
+          <Link to="/practice" className="bg-surface text-ink inline-flex h-14 shrink-0 items-center justify-center rounded-2xl px-8 text-[16px] font-medium transition-opacity hover:opacity-90 active:scale-[0.98]">
             Заниматься
           </Link>
         </div>

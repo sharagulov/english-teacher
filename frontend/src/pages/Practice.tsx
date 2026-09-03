@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Info } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, ErrorNote, Kbd, Loading, PageHeader, Progress, SectionTitle, Stat, cx, } from '../components/ui';
-import { DirectionSwitch } from '../components/DirectionSwitch';
+import { DirectionSwitch, AnswerFormatSwitch } from '../components/DirectionSwitch';
 import { RatingPointsLabel } from '../components/RatingPoints';
 import { ApiError, api } from '../lib/api';
-import { MODE_LABELS, formatNumber, plural } from '../lib/format';
+import { ANSWER_FORMAT_LABELS, ANSWER_FORMAT_MULTIPLIER, MODE_LABELS, formatNumber, plural } from '../lib/format';
 import { useAsync } from '../lib/useAsync';
-import type { CefrLevel, ClassicDirection, SelectablePracticeMode } from '../lib/types';
+import type { AnswerFormat, CefrLevel, ClassicDirection, SelectablePracticeMode } from '../lib/types';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -54,35 +55,51 @@ function saveExcludedLevels(userId: string | undefined, levels: CefrLevel[]): vo
         return;
     localStorage.setItem(excludedLevelsKey(userId), JSON.stringify(levels));
 }
-function classicDirectionKey(userId: string): string {
-    return `lexio.practice.classicDirection.${userId}`;
+function practiceDirectionKey(userId: string): string {
+    return `lexio.practice.direction.${userId}`;
 }
-function loadClassicDirection(userId: string | undefined): ClassicDirection {
+function loadPracticeDirection(userId: string | undefined): ClassicDirection {
     if (!userId)
         return 'en_ru';
     try {
-        return localStorage.getItem(classicDirectionKey(userId)) === 'ru_en' ? 'ru_en' : 'en_ru';
+        const stored = localStorage.getItem(practiceDirectionKey(userId))
+            ?? localStorage.getItem(`lexio.practice.classicDirection.${userId}`);
+        return stored === 'ru_en' ? 'ru_en' : 'en_ru';
     }
     catch {
         return 'en_ru';
     }
 }
-function saveClassicDirection(userId: string | undefined, direction: ClassicDirection): void {
+function savePracticeDirection(userId: string | undefined, direction: ClassicDirection): void {
     if (!userId)
         return;
-    localStorage.setItem(classicDirectionKey(userId), direction);
+    localStorage.setItem(practiceDirectionKey(userId), direction);
+}
+function answerFormatKey(userId: string): string {
+    return `lexio.practice.answerFormat.${userId}`;
+}
+function loadAnswerFormat(userId: string | undefined): AnswerFormat {
+    if (!userId)
+        return 'typed';
+    try {
+        return localStorage.getItem(answerFormatKey(userId)) === 'choice' ? 'choice' : 'typed';
+    }
+    catch {
+        return 'typed';
+    }
+}
+function saveAnswerFormat(userId: string | undefined, format: AnswerFormat): void {
+    if (!userId)
+        return;
+    localStorage.setItem(answerFormatKey(userId), format);
 }
 const MODE_NOTES: Record<SelectablePracticeMode, string> = {
-    classic: 'Слово по-английски — вы пишете перевод. Основной режим для набора словаря.',
-    choice: 'Четыре варианта перевода. Можно убрать два неверных за рейтинг — жалко, но иногда спасает.',
-    listening: 'Слово звучит, вы записываете перевод. Тренирует восприятие на слух.',
+    classic: 'Слова, которых у вас ещё нет в личном прогрессе. Основной режим для расширения словаря.',
     weak: 'Слова, на которых вы чаще всего ошибаетесь. Самый быстрый способ закрыть пробелы.',
     srs: 'Слова, подошедшие к сроку повторения. Именно это удерживает словарь в памяти.',
 };
-const MODE_SOURCE: Record<SelectablePracticeMode, 'new' | 'due' | 'weak' | 'any'> = {
+const MODE_SOURCE: Record<SelectablePracticeMode, 'new' | 'due' | 'weak'> = {
     classic: 'new',
-    choice: 'any',
-    listening: 'any',
     weak: 'weak',
     srs: 'due',
 };
@@ -93,7 +110,8 @@ export function Practice() {
     const userId = useAuth((state) => state.user?.id);
     const cefrLevel = useAuth((state) => state.user?.cefrLevel ?? 'A2');
     const [mode, setMode] = useState<SelectablePracticeMode>('classic');
-    const [classicDirection, setClassicDirection] = useState<ClassicDirection>(() => loadClassicDirection(userId));
+    const [direction, setDirection] = useState<ClassicDirection>(() => loadPracticeDirection(userId));
+    const [answerFormat, setAnswerFormat] = useState<AnswerFormat>(() => loadAnswerFormat(userId));
     const [size, setSize] = useState(20);
     const [excludedLevels, setExcludedLevels] = useState<CefrLevel[]>(() => loadExcludedLevels(userId));
     const [topics, setTopics] = useState<string[]>([]);
@@ -122,8 +140,8 @@ export function Practice() {
         if (!data)
             return 0;
         const source = MODE_SOURCE[mode];
-        const { newWords, due, weak, total } = data.availability;
-        return { new: newWords, due, weak, any: total }[source];
+        const { newWords, due, weak } = data.availability;
+        return { new: newWords, due, weak }[source];
     }, [data, mode]);
     if (overview.loading && !data)
         return <Loading label="Готовим тренажёр"/>;
@@ -132,7 +150,7 @@ export function Practice() {
     if (!data)
         return null;
     const activePool = data.activePool;
-    const multiplier = data.availability.modeMultipliers[mode] ?? 1;
+    const multiplier = (data.availability.modeMultipliers[mode] ?? 1) * ANSWER_FORMAT_MULTIPLIER[answerFormat];
     const toggle = <T,>(list: T[], value: T): T[] => list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
     const toggleLevel = (level: CefrLevel) => {
         if (profileFloor.includes(level))
@@ -154,9 +172,10 @@ export function Practice() {
             const state = await api.practice.createPool({
                 mode,
                 size,
+                direction,
+                answerFormat,
                 ...(poolLevels ? { levels: poolLevels } : {}),
                 ...(poolTopics ? { topics: poolTopics } : {}),
-                ...(mode === 'classic' && classicDirection === 'ru_en' ? { direction: 'ru_en' } : {}),
             });
             navigate(`/practice/session/${state.pool.id}`);
         }
@@ -207,16 +226,28 @@ export function Practice() {
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <section>
           <SectionTitle title="Режим" description="Все режимы работают с вашим личным словарём и статистикой"/>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             {data.modes.map((item) => {
             const selected = item.mode === mode;
-            return (<button key={item.mode} type="button" disabled={!item.unlocked} onClick={() => setMode(item.mode)} className={cx('rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150', selected ? 'border-ink bg-raised' : 'border-line bg-raised hover:border-line-strong', !item.unlocked && 'cursor-not-allowed opacity-45 hover:border-line')}>
+            return (<div key={item.mode} role="button" tabIndex={item.unlocked ? 0 : -1} aria-disabled={!item.unlocked} onClick={() => {
+                    if (item.unlocked)
+                        setMode(item.mode);
+                }} onKeyDown={(event) => {
+                    if (!item.unlocked)
+                        return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setMode(item.mode);
+                    }
+                }} className={cx('rounded-2xl border px-4 py-3 text-left transition-[border-color,background-color] duration-150', selected ? 'border-ink bg-raised' : 'border-line bg-raised hover:border-line-strong', item.unlocked ? 'cursor-pointer' : 'cursor-not-allowed opacity-45 hover:border-line')}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-ink text-sm font-medium">{item.label}</span>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                      <span className="text-ink truncate text-sm font-medium">{item.label}</span>
+                      <ModeInfoHint label={item.label} note={MODE_NOTES[item.mode]}/>
+                    </div>
                     {item.unlocked ? (data.availability.modeMultipliers[item.mode] > 1 ? (<Badge tone="accent">×{data.availability.modeMultipliers[item.mode]}</Badge>) : null) : (<Badge>с {item.unlockLevel} ур.</Badge>)}
                   </div>
-                  <p className="text-soft mt-1.5 text-[13px] leading-relaxed">{MODE_NOTES[item.mode]}</p>
-                </button>);
+                </div>);
         })}
           </div>
 
@@ -233,6 +264,22 @@ export function Practice() {
 
           <div className="mt-7">
             <SectionTitle title="Отбор слов" description="Без фильтров слова подбираются по вашему уровню и приоритету повторения"/>
+            <div className="mb-5 grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Направление</p>
+                <DirectionSwitch value={direction} onChange={(next) => {
+                setDirection(next);
+                savePracticeDirection(userId, next);
+            }}/>
+              </div>
+              <div>
+                <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Формат ответа</p>
+                <AnswerFormatSwitch value={answerFormat} onChange={(next) => {
+                setAnswerFormat(next);
+                saveAnswerFormat(userId, next);
+            }}/>
+              </div>
+            </div>
             <p className="text-faint mb-1 text-[12px] font-medium tracking-wide uppercase">Уровни</p>
             <p className="text-soft mb-2 text-[12px] leading-relaxed">
               Ниже {cefrLevel} — по профилю. Зачёркнутый — исключён.
@@ -276,21 +323,15 @@ export function Practice() {
             </div>
 
             <div className="border-line mt-5 border-t pt-5">
-              {mode === 'classic' ? (<div className="mb-4">
-                  <p className="text-faint mb-2 text-[12px] font-medium tracking-wide uppercase">Направление</p>
-                  <DirectionSwitch value={classicDirection} onChange={(next) => {
-                setClassicDirection(next);
-                saveClassicDirection(userId, next);
-            }}/>
-                </div>) : null}
               <p className="text-soft text-[13px]">
                 {MODE_LABELS[mode]}
-                {mode === 'classic' ? (classicDirection === 'ru_en' ? ', с русского' : ', с английского') : ''}
+                {direction === 'ru_en' ? ', с русского' : ', с английского'}
+                , {answerFormat === 'choice' ? ANSWER_FORMAT_LABELS.choice : ANSWER_FORMAT_LABELS.typed}
                 , {size} слов
-                {multiplier > 1 ? `, очки ×${multiplier}` : ''}
+                {multiplier !== 1 ? `, очки ×${multiplier}` : ''}
                 {excludedLevels.length > 0 ? `, без ${excludedLevels.join(', ')}` : ''}
               </p>
-              {mode === 'choice' && data.choiceHint ? (<p className="text-faint mt-2 text-[12px] leading-relaxed">
+              {answerFormat === 'choice' && data.choiceHint ? (<p className="text-faint mt-2 text-[12px] leading-relaxed">
                   Подсказка убирает два неверных варианта и стоит{' '}
                   <RatingPointsLabel amount={data.choiceHint.cost} valueClassName="text-[12px]"/>.
                   Если очков станет меньше порога уровня — уровень понизится.
@@ -311,9 +352,9 @@ export function Practice() {
               <p>
                 <Kbd>Enter</Kbd> — ответить · любая клавиша — закрыть разбор
               </p>
-              <p>
+              {answerFormat === 'choice' ? (<p>
                 <Kbd>1</Kbd>–<Kbd>4</Kbd> — выбор варианта
-              </p>
+              </p>) : null}
               <p>
                 <Kbd>Esc</Kbd> — не знаю
               </p>
@@ -321,6 +362,37 @@ export function Practice() {
           </Card>
         </aside>
       </div>
+    </div>);
+}
+function ModeInfoHint({ label, note }: {
+    label: string;
+    note: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const showTimer = useRef<number | null>(null);
+    const show = () => {
+        showTimer.current = window.setTimeout(() => setOpen(true), 300);
+    };
+    const hide = () => {
+        if (showTimer.current !== null) {
+            window.clearTimeout(showTimer.current);
+            showTimer.current = null;
+        }
+        setOpen(false);
+    };
+    useEffect(() => () => {
+        if (showTimer.current !== null)
+            window.clearTimeout(showTimer.current);
+    }, []);
+    return (<div className="relative shrink-0" onMouseEnter={show} onMouseLeave={hide}>
+      <span aria-label={`О режиме «${label}»`} className="text-faint hover:text-soft hover:bg-sunken inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-150">
+        <Info size={14} strokeWidth={1.75} aria-hidden="true"/>
+      </span>
+      {open ? (<div role="tooltip" className="pointer-events-none absolute top-full right-0 z-10 pt-1.5">
+          <div className="border-line bg-surface w-56 rounded-xl border p-3 text-[13px] leading-relaxed text-soft shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+            {note}
+          </div>
+        </div>) : null}
     </div>);
 }
 function Chip({ active = false, excluded = false, disabled = false, onClick, children, ariaLabel, title, }: {

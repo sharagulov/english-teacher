@@ -12,7 +12,7 @@
 
 **Что может пользователь:**
 - регистрироваться и входить по email/паролю;
-- тренировать слова в пуллах (8 режимов);
+- тренировать слова в пуллах (три режима отбора + направление и формат ответа);
 - просматривать словарь, статистику, достижения, награды за уровень;
 - выполнять AI-задания и вести диалог с AI-репетитором (при наличии `OPENAI_API_KEY`);
 - настраивать профиль (CEFR-уровень, дневная цель, озвучка, тема оформления и др.).
@@ -29,7 +29,7 @@
 
 Вокруг пуллов работает **SM-2-подобная модель памяти** (`backend/src/lib/srs.ts`): интервалы, сила, статусы (`new` → `learning` → `review` → `mastered` / `leech`), приоритет ошибочных слов.
 
-Параллельно идёт **рейтинг** — единая валюта очков (`User.points`), задающая уровень 1–1000 (`backend/src/lib/economy.ts`). Очки начисляются за ответы, пуллы, серии, достижения; **частично тратятся** на платную подсказку в режиме «Выбор варианта» (`spendPoints` в `backend/src/services/progress.ts`).
+Параллельно идёт **рейтинг** — единая валюта очков (`User.points`), задающая уровень 1–1000 (`backend/src/lib/economy.ts`). Очки начисляются за ответы, пуллы, серии, достижения; **частично тратятся** на подсказку при формате ответа «выбор варианта» (`spendPoints` в `backend/src/services/progress.ts`).
 
 **Основной сценарий:** зайти → собрать пулл → пройти сессию → получить очки и обновление SRS → посмотреть прогресс на Dashboard/Stats.
 
@@ -67,7 +67,7 @@
 
 **Entry point:** `/practice`.
 
-**Flow:** выбор режима, размера пулла, фильтров (уровни CEFR, темы) → `POST /practice/pools` → переход на `/practice/session/:poolId` → ответы через `POST .../answer` → завершение пулла или abandon.
+**Flow:** выбор режима отбора слов, размера пулла, направления (EN→RU / RU→EN), формата ответа (ввод / 4 варианта), фильтров (уровни CEFR, темы) → `POST /practice/pools` → переход на `/practice/session/:poolId` → ответы через `POST .../answer` → завершение пулла или abandon.
 
 **Result:** обновлённые `UserWord`, начисленные очки, возможные достижения, статистика за день.
 
@@ -175,7 +175,7 @@
 ### Pool / PoolItem
 
 - **Смысл:** сессия тренировки — набор слов в конкретном режиме.
-- **Ключевые поля:** `mode`, `size`, `status` (active/completed/abandoned), счётчики, `choicesJson` / `hintHidden` для режима choice.
+- **Ключевые поля:** `mode`, `size`, `status` (active/completed/abandoned), счётчики; `filters` (JSON: уровни, темы, `direction`, `answerFormat`); `choicesJson` / `hintHidden` при `answerFormat: choice`.
 - **Связи:** `User`, слова через `PoolItem`, `Attempt`.
 - **Код:** `backend/prisma/schema.prisma`, `backend/src/services/practice.ts`.
 
@@ -282,7 +282,7 @@ english/                          # npm workspaces monorepo (lexio)
 - **Ожидаемые ошибки:** `throw Object.assign(new Error('...'), { statusCode: 4xx })` в services.
 - **Frontend pages:** `useAsync(loader)` для GET; мутации — локальный `useState` + `api.*` + `patchUser` / `notify`.
 - **Типы API:** дублируются на frontend в `frontend/src/lib/types.ts` (не shared package).
-- **Labels/constants:** `MODE_LABELS`, `PART_OF_SPEECH_LABELS` — `frontend/src/lib/format.ts`; unlock-уровни режимов — только backend `economy.ts`; unlock тем — **продублирован** в `frontend/src/store/ui.ts` и `backend/src/lib/economy.ts`.
+- **Labels/constants:** `MODE_LABELS`, `ANSWER_FORMAT_*`, `PART_OF_SPEECH_LABELS` — `frontend/src/lib/format.ts`; unlock-уровни режимов — только backend `economy.ts`; unlock тем — **продублирован** в `frontend/src/store/ui.ts` и `backend/src/lib/economy.ts`.
 - **Компоненты UI:** функциональные React, Tailwind через `cx()`, варианты через Record-мапы (`BUTTON_VARIANTS`).
 - **Lazy routes:** тяжёлые страницы через `React.lazy` в `App.tsx`.
 - **Локальное хранение:** JWT `lexio.token`, тема `lexio.theme`, excluded CEFR levels `lexio.practice.excludedLevels.{userId}`.
@@ -298,7 +298,7 @@ english/                          # npm workspaces monorepo (lexio)
 - **Header metrics:** дневная серия (flame), очки рейтинга, уровень с mini-progress bar.
 - **Controls:** кастомные `Button`, `Input`, `Card`, `Badge`, `Stat`, `Progress`; иконки — `lucide-react`.
 - **Feedback:** toasts (`useUi.notify`), inline `ErrorNote`, `Loading` с label.
-- **Session UX:** фазы question/feedback; undo неверного ответа; choice hint за рейтинг; dislike слова; озвучка (`speech.ts`) в listening.
+- **Session UX:** фазы question/feedback; undo неверного ответа; choice hint за рейтинг (при формате «4 варианта»); dislike слова; озвучка (`speech.ts`) в listening.
 - **Themes:** `light` (default), `paper`, `night` — CSS variables, unlock by rating level.
 - **Typography:** класс `word-display` для заголовков; русская локализация форматирования (`format.ts`, `plural`).
 - **Responsive:** mobile-first Tailwind (`sm:`, скрытие части header на маленьких экранах).
@@ -399,7 +399,7 @@ Profile form → useAuth.updateSettings → api.auth.update → PATCH /auth/me �
 - Отбор слов для пользователя учитывает `User.cefrLevel` через `levelsUpTo()` — свой уровень и ниже + следующий.
 - Достижения выдаются один раз (`UserAchievement` unique by `userId, code`); определения живут в коде.
 - Дневная серия и «день» считаются по `User.timezoneOffset`, не по UTC сервера.
-- Режимы тренировки блокируются по `User.level >= MODE_UNLOCK_LEVEL[mode]` (кроме classic/choice/srs — с 1 lvl).
+- Режимы тренировки: `classic`, `weak`, `srs` (в `PRACTICE_MODES`). Формат ответа (`typed` / `choice`) и направление (`en_ru` / `ru_en`) задаются в фильтрах пулла, не отдельным режимом. Режим `listening` временно скрыт; `choice` как режим отбора слов упразднён, но сохранён в типах для истории.
 - AI-функции не работают без `OPENAI_API_KEY` (`env.aiEnabled === false`).
 - `User.id` (cuid) — стабильный идентификатор; все user-data cascade on delete.
 
@@ -464,7 +464,6 @@ Profile form → useAuth.updateSettings → api.auth.update → PATCH /auth/me �
 
 | Проблема | Где | Почему помнить |
 |----------|-----|----------------|
-| README утверждает, что очки «не тратятся», но реализовано списание за choice hint | `README.md` vs `progress.spendPoints`, `Session.tsx` | Документация и UI-комментарии могут расходиться с кодом |
 | Комментарий в `types.ts`: «очки только растут» — неверен для hint spend | `frontend/src/lib/types.ts` | Не полагаться на устаревшие комментарии |
 | Unlock-уровни тем продублированы frontend/backend | `ui.ts`, `economy.ts` | Изменение порогов требует синхронизации двух файлов |
 | Нет Prisma migrations в репо, только `db push` | `package.json`, deploy | Schema evolution без versioned migrations |

@@ -1,4 +1,4 @@
-import type { AiMeta, AiResult, AiTask, AiTaskType, AiUsageOverview, AnswerResult, Breakdown, CefrLevel, ChatMessage, DailyPoint, DictionaryWord, PoolState, PracticeMode, PracticeOverview, RewardsOverview, StatsOverview, User, WordDetail, WordExample, WordRow, WordStatsSort, } from './types';
+import type { AiMeta, AiResult, AiTask, AiTaskType, AiUsageOverview, AnswerFormat, AnswerResult, Breakdown, CefrLevel, ChatMessage, DailyPoint, DictionaryWord, PoolState, PracticeMode, PracticeOverview, RewardsOverview, SelectablePracticeMode, StatsOverview, User, WordDetail, WordExample, WordRow, WordStatsSort, } from './types';
 const TOKEN_KEY = 'lexio.token';
 export function getToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
@@ -104,12 +104,13 @@ export const api = {
             topics?: string[];
         }) => request<PracticeOverview>('GET', `/practice/overview${query(params ?? {})}`),
         createPool: (body: {
-            mode: PracticeMode;
+            mode: SelectablePracticeMode;
             size: number;
             levels?: CefrLevel[];
             topics?: string[];
             partsOfSpeech?: string[];
             direction?: 'en_ru' | 'ru_en';
+            answerFormat?: AnswerFormat;
         }) => request<PoolState>('POST', '/practice/pools', body),
         activePool: () => request<{
             state: PoolState | null;

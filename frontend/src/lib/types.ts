@@ -1,6 +1,7 @@
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
-export type SelectablePracticeMode = 'classic' | 'choice' | 'listening' | 'weak' | 'srs';
-export type PracticeMode = SelectablePracticeMode | 'reverse' | 'sprint' | 'mixed';
+export type SelectablePracticeMode = 'classic' | 'weak' | 'srs';
+export type AnswerFormat = 'typed' | 'choice';
+export type PracticeMode = SelectablePracticeMode | 'reverse' | 'choice' | 'sprint' | 'mixed' | 'listening';
 export type ClassicDirection = 'en_ru' | 'ru_en';
 export type WordStatus = 'new' | 'learning' | 'review' | 'mastered' | 'leech';
 export type MatchType = 'exact' | 'alternative' | 'typo' | 'wrong' | 'skipped';

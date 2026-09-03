@@ -1,7 +1,7 @@
 import { prisma } from '../db.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { todayKey } from '../lib/day.js';
-import { MODE_MULTIPLIER, choiceHintCost, computeReward, levelFromPoints, levelProgress, poolCompletionReward, type LevelProgress, type PracticeMode, } from '../lib/economy.js';
+import { MODE_MULTIPLIER, ANSWER_FORMAT_MULTIPLIER, choiceHintCost, computeReward, levelFromPoints, levelProgress, poolCompletionReward, type AnswerFormat, type LevelProgress, type PracticeMode, } from '../lib/economy.js';
 import { levelsUpTo, type CefrLevel } from '../lib/levels.js';
 import { applyAnswer, computePriority, initialState, reinsertGap, weightedSample, type SrsState, } from '../lib/srs.js';
 import { matchAnswer, parseStringArray, type MatchType } from '../lib/text.js';
@@ -16,7 +16,7 @@ export function dislikeWeight(level: number): number {
     return DISLIKE_WEIGHT[1];
 }
 const NEW_WORD_RATIO: Record<PracticeMode, number> = {
-    classic: 0.75,
+    classic: 1,
     choice: 0.8,
     reverse: 0.3,
     listening: 0.3,
@@ -32,29 +32,36 @@ export function directionForMode(mode: PracticeMode): 'en_ru' | 'ru_en' | 'audio
         return 'audio_en';
     return 'en_ru';
 }
-function directionFromFilters(raw: string | null | undefined): 'en_ru' | 'ru_en' | undefined {
+function parsePoolFilters(raw: string | null | undefined): PoolFilters {
     if (!raw)
-        return undefined;
+        return {};
     try {
         const parsed: unknown = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-            return undefined;
-        const direction = (parsed as {
-            direction?: unknown;
-        }).direction;
-        return direction === 'en_ru' || direction === 'ru_en' ? direction : undefined;
+            return {};
+        const obj = parsed as Record<string, unknown>;
+        const filters: PoolFilters = {};
+        if (obj.direction === 'en_ru' || obj.direction === 'ru_en')
+            filters.direction = obj.direction;
+        if (obj.answerFormat === 'typed' || obj.answerFormat === 'choice')
+            filters.answerFormat = obj.answerFormat;
+        return filters;
     }
     catch {
-        return undefined;
+        return {};
     }
+}
+function answerFormatFromFilters(filtersJson?: string | null): AnswerFormat {
+    return parsePoolFilters(filtersJson).answerFormat ?? 'typed';
 }
 export function directionForPool(mode: PracticeMode, filtersJson?: string | null): 'en_ru' | 'ru_en' | 'audio_en' {
     if (mode === 'listening')
         return 'audio_en';
     if (mode === 'reverse')
         return 'ru_en';
-    if (mode === 'classic' && directionFromFilters(filtersJson) === 'ru_en')
-        return 'ru_en';
+    const fromFilters = parsePoolFilters(filtersJson).direction;
+    if (fromFilters)
+        return fromFilters;
     return directionForMode(mode);
 }
 export interface PoolFilters {
@@ -62,6 +69,7 @@ export interface PoolFilters {
     topics?: string[];
     partsOfSpeech?: string[];
     direction?: 'en_ru' | 'ru_en';
+    answerFormat?: AnswerFormat;
 }
 type WordRecord = Prisma.WordGetPayload<{}>;
 function wordFilterForPool(levels: CefrLevel[], filters: PoolFilters) {
@@ -167,12 +175,13 @@ async function selectPoolWords(input: CreatePoolInput, levels: CefrLevel[]): Pro
         onlyWeak: mode === 'weak',
     });
     const reviewOnlyMode = mode === 'srs' || mode === 'weak';
+    const newOnlyMode = mode === 'classic';
     let words = review.map((r) => r.word);
     if (!reviewOnlyMode) {
         const fresh = await selectNewWords(userId, levels, filters, size - words.length);
         words = [...words, ...fresh];
     }
-    if (words.length < size && !reviewOnlyMode) {
+    if (words.length < size && !reviewOnlyMode && !newOnlyMode) {
         const extra = await selectReviewWords(userId, levels, filters, size - words.length);
         for (const candidate of extra) {
             if (!words.some((w) => w.id === candidate.word.id))
@@ -317,6 +326,8 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
     const item = pool.items[0];
     const mode = pool.mode as PracticeMode;
     const direction = directionForPool(mode, pool.filters);
+    const answerFormat = answerFormatFromFilters(pool.filters);
+    const isChoice = answerFormat === 'choice' || mode === 'choice';
     let question: Question | null = null;
     if (item) {
         const word = item.word;
@@ -332,7 +343,7 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
             select: { dislikeLevel: true },
         });
         let choices: string[] | undefined;
-        if (mode === 'choice') {
+        if (isChoice) {
             choices = parseJsonStrings(item.choicesJson) ?? (await buildChoices(word, direction));
             if (!item.choicesJson) {
                 await prisma.poolItem.update({
@@ -357,7 +368,7 @@ export async function getPoolState(userId: string, poolId: string): Promise<Pool
             isRetry: item.wrongCount > 0,
             dislikeLevel: progressRow?.dislikeLevel ?? 0,
             ...(choices ? { choices } : {}),
-            ...(mode === 'choice'
+            ...(isChoice
                 ? {
                     hintCost: cost,
                     hintUsed: Boolean(item.hintHidden),
@@ -526,6 +537,9 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     }
     const mode = pool.mode as PracticeMode;
     const direction = directionForPool(mode, pool.filters);
+    const answerFormat = answerFormatFromFilters(pool.filters);
+    const rewardMode = mode === 'choice' ? 'classic' : mode;
+    const rewardFormat: AnswerFormat = mode === 'choice' ? 'choice' : answerFormat;
     const word = item.word;
     const answers = expectedAnswers(word, direction);
     const match = input.gaveUp
@@ -644,7 +658,8 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<AnswerResu
     const sessionStreak = match.isCorrect ? await computeSessionStreak(input.userId, input.poolId) + 1 : 0;
     const reward = computeReward({
         level: word.level as CefrLevel,
-        mode,
+        mode: rewardMode,
+        answerFormat: rewardFormat,
         matchType: match.matchType,
         isCorrect: match.isCorrect,
         sessionStreak,
@@ -879,8 +894,8 @@ export async function buyChoiceHint(userId: string, poolId: string, wordId: numb
     if (!pool || pool.status !== 'active') {
         throw Object.assign(new Error('Этот пулл уже закрыт.'), { statusCode: 409 });
     }
-    if (pool.mode !== 'choice') {
-        throw Object.assign(new Error('Подсказка доступна только в режиме «Выбор варианта».'), { statusCode: 400 });
+    if (answerFormatFromFilters(pool.filters) !== 'choice' && pool.mode !== 'choice') {
+        throw Object.assign(new Error('Подсказка доступна только при ответе выбором варианта.'), { statusCode: 400 });
     }
     const current = await prisma.poolItem.findFirst({
         where: { poolId, solved: false },
@@ -908,7 +923,7 @@ export async function buyChoiceHint(userId: string, poolId: string, wordId: numb
             },
         };
     }
-    const direction = directionForMode('choice');
+    const direction = directionForPool(pool.mode as PracticeMode, pool.filters);
     let options = parseJsonStrings(current.choicesJson) ?? (await buildChoices(current.word, direction));
     if (!current.choicesJson) {
         await prisma.poolItem.update({

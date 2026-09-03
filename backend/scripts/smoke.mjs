@@ -129,7 +129,7 @@ ok('всего наград', rewards.items.length);
 ok('открыто', rewards.items.filter((i) => i.unlocked).map((i) => i.code).join(', ') || 'ничего');
 ok('заморозок серии', `${rewards.streakFreezes} из ${rewards.maxStreakFreezes}`);
 console.log('\n10. Прочие режимы');
-for (const mode of ['choice', 'listening', 'srs', 'weak']) {
+for (const mode of ['srs', 'weak']) {
     try {
         const s = await call('POST', '/practice/pools', { mode, size: 5 });
         ok(`режим ${mode}`, `создан, вопрос: ${s.question?.prompt}${s.question?.choices ? ` | варианты: ${s.question.choices.join(' / ')}` : ''}`);
@@ -137,6 +137,13 @@ for (const mode of ['choice', 'listening', 'srs', 'weak']) {
     catch (e) {
         console.log(`  ○ режим ${mode}: ${String(e.message).split('\n')[0]}`);
     }
+}
+try {
+    const s = await call('POST', '/practice/pools', { mode: 'classic', size: 5, answerFormat: 'choice' });
+    ok('classic + choice', `создан, варианты: ${s.question?.choices?.join(' / ') ?? 'нет'}`);
+}
+catch (e) {
+    console.log(`  ○ classic + choice: ${String(e.message).split('\n')[0]}`);
 }
 console.log('\n11. Словарь');
 const dict = await call('GET', '/words?level=B1&perPage=5');

@@ -1,3 +1,4 @@
+import type { AnswerFormat } from './types';
 const numberFormat = new Intl.NumberFormat('ru-RU');
 export const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
 const usdFormat = new Intl.NumberFormat('en-US', {
@@ -139,6 +140,14 @@ export const MODE_LABELS: Record<string, string> = {
     weak: 'Слабые слова',
     srs: 'Повторение',
     mixed: 'Микс',
+};
+export const ANSWER_FORMAT_MULTIPLIER: Record<AnswerFormat, number> = {
+    typed: 1,
+    choice: 0.6,
+};
+export const ANSWER_FORMAT_LABELS: Record<AnswerFormat, string> = {
+    typed: 'ввод вручную',
+    choice: '4 варианта',
 };
 export const PART_OF_SPEECH_LABELS: Record<string, string> = {
     noun: 'существительное',

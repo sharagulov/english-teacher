@@ -1,12 +1,29 @@
+import { SegmentedControl } from './ui';
 import type { ClassicDirection } from '../lib/types';
-import { LabeledSwitch } from './Switch';
+
+const DIRECTION_OPTIONS = [
+    { value: 'en_ru' as const, label: 'EN → RU' },
+    { value: 'ru_en' as const, label: 'RU → EN' },
+] as const;
+
+const ANSWER_FORMAT_OPTIONS = [
+    { value: 'typed' as const, label: 'Ввод' },
+    { value: 'choice' as const, label: '4 варианта' },
+] as const;
+
 export function DirectionSwitch({ value, onChange, className, }: {
     value: ClassicDirection;
     onChange: (value: ClassicDirection) => void;
     className?: string;
 }) {
-    const reversed = value === 'ru_en';
-    return (<LabeledSwitch leftLabel="EN → RU" rightLabel="RU → EN" checked={reversed} onChange={(checked) => onChange(checked ? 'ru_en' : 'en_ru')} aria-label={reversed ? 'С русского на английский' : 'С английского на русский'} className={className}/>);
+    return (<SegmentedControl value={value} onChange={onChange} options={DIRECTION_OPTIONS} aria-label="Направление перевода" className={className}/>);
+}
+export function AnswerFormatSwitch({ value, onChange, className, }: {
+    value: 'typed' | 'choice';
+    onChange: (value: 'typed' | 'choice') => void;
+    className?: string;
+}) {
+    return (<SegmentedControl value={value} onChange={onChange} options={ANSWER_FORMAT_OPTIONS} aria-label="Формат ответа" className={className}/>);
 }
 export function sentenceTaskDirection(type: string): ClassicDirection {
     return type === 'sentence_ru_en' ? 'ru_en' : 'en_ru';
