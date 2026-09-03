@@ -30,7 +30,8 @@ const poolBody = z.object({
     levels: z.array(z.enum(CEFR_LEVELS)).optional(),
     topics: z.array(z.string().min(1).max(80)).max(20).optional(),
     partsOfSpeech: z.array(z.string().min(1).max(30)).max(10).optional(),
-    direction: z.enum(['en_ru', 'ru_en']).optional(),
+    direction: z.enum(['en_ru', 'ru_en']).default('en_ru'),
+    answerFormat: z.enum(['typed', 'choice']).default('typed'),
 });
 const answerBody = z.object({
     wordId: z.number().int().positive(),
@@ -73,7 +74,7 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
             topics: topics.map((t) => ({ topic: t.topic as string, count: t._count })),
             choiceHint: {
                 cost: choiceHintCost(user.points),
-                description: 'В режиме «Выбор варианта» можно убрать два неверных варианта за рейтинг.',
+                description: 'При ответе выбором варианта можно убрать два неверных за рейтинг.',
             },
         };
     });
@@ -82,7 +83,7 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
         if (!parsed.success) {
             return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'Некорректные параметры пулла' });
         }
-        const { mode, size, direction, ...filters } = parsed.data;
+        const { mode, size, direction, answerFormat, ...filters } = parsed.data;
         const user = await prisma.user.findUniqueOrThrow({
             where: { id: request.userId },
             select: { level: true },
@@ -99,7 +100,8 @@ const practiceRoutes: FastifyPluginAsync = async (app) => {
                 levels: filters.levels,
                 topics: filters.topics,
                 partsOfSpeech: filters.partsOfSpeech,
-                ...(mode === 'classic' && direction === 'ru_en' ? { direction: 'ru_en' as const } : {}),
+                direction,
+                answerFormat,
             },
         });
         return reply.code(201).send(state);

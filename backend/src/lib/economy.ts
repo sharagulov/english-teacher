@@ -1,8 +1,18 @@
 import type { MatchType } from './text.js';
 import type { CefrLevel } from './levels.js';
 export type PracticeMode = 'classic' | 'reverse' | 'choice' | 'listening' | 'sprint' | 'weak' | 'srs' | 'mixed';
-export const PRACTICE_MODES = ['classic', 'choice', 'listening', 'weak', 'srs'] as const satisfies readonly PracticeMode[];
+/** Режимы в UI. `listening` временно скрыт — вернуть в массив, когда откроем доступ. */
+export const PRACTICE_MODES = ['classic', 'weak', 'srs'] as const satisfies readonly PracticeMode[];
 export type SelectablePracticeMode = (typeof PRACTICE_MODES)[number];
+export type AnswerFormat = 'typed' | 'choice';
+export const ANSWER_FORMAT_MULTIPLIER: Record<AnswerFormat, number> = {
+    typed: 1,
+    choice: 0.6,
+};
+export const ANSWER_FORMAT_LABELS: Record<AnswerFormat, string> = {
+    typed: 'Ввод вручную',
+    choice: 'Выбор варианта',
+};
 const BASE_BY_LEVEL: Record<CefrLevel, number> = {
     A1: 6,
     A2: 8,
@@ -33,14 +43,13 @@ export const MODE_LABELS: Record<PracticeMode, string> = {
 };
 export const MODE_UNLOCK_LEVEL: Record<SelectablePracticeMode, number> = {
     classic: 1,
-    choice: 1,
     srs: 1,
     weak: 2,
-    listening: 3,
 };
 export interface RewardInput {
     level: CefrLevel;
     mode: PracticeMode;
+    answerFormat?: AnswerFormat;
     matchType: MatchType;
     isCorrect: boolean;
     sessionStreak: number;
@@ -69,12 +78,16 @@ export function computeReward(input: RewardInput): Reward {
         return { points: 1, breakdown: [{ label: 'Очко за попытку', value: '+1' }], streakMultiplier: 1 };
     }
     const base = BASE_BY_LEVEL[input.level];
-    const modeMultiplier = MODE_MULTIPLIER[input.mode];
+    const formatMultiplier = ANSWER_FORMAT_MULTIPLIER[input.answerFormat ?? 'typed'];
+    const modeMultiplier = MODE_MULTIPLIER[input.mode] * formatMultiplier;
     const multiplier = streakMultiplier(input.sessionStreak);
     const typoFactor = input.matchType === 'typo' ? 0.5 : 1;
     breakdown.push({ label: `Уровень ${input.level}`, value: `${base}` });
     if (modeMultiplier !== 1) {
-        breakdown.push({ label: MODE_LABELS[input.mode], value: `×${modeMultiplier}` });
+        const modePart = MODE_MULTIPLIER[input.mode] !== 1 ? MODE_LABELS[input.mode] : null;
+        const formatPart = formatMultiplier !== 1 ? ANSWER_FORMAT_LABELS[input.answerFormat ?? 'choice'] : null;
+        const label = [modePart, formatPart].filter(Boolean).join(', ') || MODE_LABELS[input.mode];
+        breakdown.push({ label, value: `×${modeMultiplier.toFixed(2).replace(/\.?0+$/, '')}` });
     }
     if (multiplier > 1) {
         breakdown.push({ label: `Серия ${input.sessionStreak}`, value: `×${multiplier.toFixed(2)}` });
