@@ -401,6 +401,7 @@ Profile form → useAuth.updateSettings → api.auth.update → PATCH /auth/me �
 - Дневная серия и «день» считаются по `User.timezoneOffset`, не по UTC сервера.
 - Режимы тренировки: `classic`, `weak`, `srs` (в `PRACTICE_MODES`). Формат ответа (`typed` / `choice`) и направление (`en_ru` / `ru_en`) задаются в фильтрах пулла, не отдельным режимом. Режим `listening` временно скрыт; `choice` как режим отбора слов упразднён, но сохранён в типах для истории.
 - AI-функции не работают без `OPENAI_API_KEY` (`env.aiEnabled === false`).
+- Задания ИИ в UI: перевод, грамматика, cloze (`AI_UI_TASK_TYPES`). Типы `listening` и `writing` временно скрыты; логика и история сохранены.
 - `User.id` (cuid) — стабильный идентификатор; все user-data cascade on delete.
 
 ---

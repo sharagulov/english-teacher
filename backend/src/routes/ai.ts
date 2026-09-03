@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
-import { AI_TASK_DESCRIPTIONS, AI_TASK_LABELS, AI_TASK_TYPES, GRAMMAR_TOPICS } from '../lib/ai.js';
+import { AI_TASK_DESCRIPTIONS, AI_TASK_LABELS, AI_UI_TASK_TYPES, GRAMMAR_TOPICS } from '../lib/ai.js';
 import { CEFR_LEVELS } from '../lib/levels.js';
 import { CHAT_SCENARIOS, chatTurn, createChatSession, generateTask, getListeningText, submitTask } from '../services/ai.js';
 const aiRoutes: FastifyPluginAsync = async (app) => {
@@ -10,7 +10,7 @@ const aiRoutes: FastifyPluginAsync = async (app) => {
     app.get('/meta', async () => ({
         enabled: env.aiEnabled,
         model: env.aiEnabled ? env.OPENAI_MODEL : null,
-        types: AI_TASK_TYPES.map((type) => ({
+        types: AI_UI_TASK_TYPES.map((type) => ({
             type,
             label: AI_TASK_LABELS[type],
             description: AI_TASK_DESCRIPTIONS[type],
@@ -19,7 +19,7 @@ const aiRoutes: FastifyPluginAsync = async (app) => {
         scenarios: CHAT_SCENARIOS,
     }));
     const generateBody = z.object({
-        type: z.enum(AI_TASK_TYPES),
+        type: z.enum(AI_UI_TASK_TYPES),
         topic: z.string().trim().max(80).optional(),
         level: z.enum(CEFR_LEVELS).optional(),
         wordId: z.number().int().positive().optional(),
