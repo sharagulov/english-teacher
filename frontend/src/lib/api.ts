@@ -56,8 +56,10 @@ const query = (params: Record<string, string | number | boolean | string[] | und
         if (value === undefined || value === '')
             continue;
         if (Array.isArray(value)) {
-            if (value.length > 0)
-                search.set(key, value.join(','));
+            for (const item of value) {
+                if (item !== '')
+                    search.append(key, item);
+            }
         }
         else {
             search.set(key, String(value));

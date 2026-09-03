@@ -4,23 +4,29 @@ import { prisma } from '../db.js';
 import { MODE_LABELS, MODE_UNLOCK_LEVEL, PRACTICE_MODES, choiceHintCost, } from '../lib/economy.js';
 import { CEFR_LEVELS, isCefrLevel, levelsUpTo } from '../lib/levels.js';
 import { abandonPool, buyChoiceHint, countAvailable, createPool, getActivePool, getPoolState, submitAnswer, undoLastWrongAnswer } from '../services/practice.js';
+function queryValues(raw: unknown): string[] {
+    if (raw == null || raw === '')
+        return [];
+    return (Array.isArray(raw) ? raw : [raw])
+        .map((part) => String(part).trim())
+        .filter(Boolean);
+}
 const overviewQuery = z.object({
     levels: z
-        .string()
+        .union([z.string(), z.array(z.string())])
         .optional()
         .transform((raw) => {
-        if (!raw?.trim())
-            return undefined;
-        const levels = raw.split(',').map((part) => part.trim()).filter(isCefrLevel);
+        const levels = queryValues(raw)
+            .flatMap((part) => part.split(','))
+            .map((part) => part.trim())
+            .filter(isCefrLevel);
         return levels.length > 0 ? levels : undefined;
     }),
     topics: z
-        .string()
+        .union([z.string(), z.array(z.string())])
         .optional()
         .transform((raw) => {
-        if (!raw?.trim())
-            return undefined;
-        const topics = raw.split(',').map((part) => part.trim()).filter(Boolean);
+        const topics = queryValues(raw);
         return topics.length > 0 ? topics : undefined;
     }),
 });

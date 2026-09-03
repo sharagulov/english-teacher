@@ -120,9 +120,17 @@ export function Practice() {
     const [levelError, setLevelError] = useState<string | null>(null);
     const candidateLevels = useMemo(() => levelsUpTo(cefrLevel), [cefrLevel]);
     const includedLevels = useMemo(() => candidateLevels.filter((level) => !excludedLevels.includes(level)), [candidateLevels, excludedLevels]);
+    const profileFloor = useMemo(() => floorExcludedLevels(cefrLevel), [cefrLevel]);
     const poolLevels = excludedLevels.length > 0 ? includedLevels : undefined;
     const poolTopics = topics.length > 0 ? topics : undefined;
-    const overview = useAsync(() => api.practice.overview({ levels: poolLevels, topics: poolTopics }), [poolLevels?.join(','), poolTopics?.join(',')]);
+    // Темы в словаре есть только у A1–B2. Профильный пол (уровни ниже CEFR) иначе отрезает их целиком.
+    const filterLevels = useMemo(() => {
+        if (!poolTopics)
+            return poolLevels;
+        const levels = candidateLevels.filter((level) => !excludedLevels.includes(level) || profileFloor.includes(level));
+        return levels.length > 0 ? levels : poolLevels;
+    }, [poolTopics, poolLevels, candidateLevels, excludedLevels, profileFloor]);
+    const overview = useAsync(() => api.practice.overview({ levels: filterLevels, topics: poolTopics }), [filterLevels?.join(','), poolTopics?.join(',')]);
     const data = overview.data;
     useEffect(() => {
         if (!data?.levels.length)
@@ -135,7 +143,6 @@ export function Practice() {
             return next;
         });
     }, [data?.levels, cefrLevel, userId]);
-    const profileFloor = useMemo(() => floorExcludedLevels(cefrLevel), [cefrLevel]);
     const available = useMemo(() => {
         if (!data)
             return 0;
@@ -174,7 +181,7 @@ export function Practice() {
                 size,
                 direction,
                 answerFormat,
-                ...(poolLevels ? { levels: poolLevels } : {}),
+                ...(filterLevels ? { levels: filterLevels } : {}),
                 ...(poolTopics ? { topics: poolTopics } : {}),
             });
             navigate(`/practice/session/${state.pool.id}`);
@@ -197,7 +204,7 @@ export function Practice() {
         notify({ title: 'Пулл отменён', tone: 'neutral' });
         overview.reload();
     };
-    return (<div>
+    return (<div className="pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
       <PageHeader title="Слова" description="Соберите пулл — слова из него возвращаются, пока не будут угаданы."/>
 
       {activePool ? (<Card className="border-accent/35 bg-accent-soft mb-6">
@@ -342,7 +349,7 @@ export function Practice() {
 
               {failure ? <div className="mt-3"><ErrorNote message={failure}/></div> : null}
 
-              <Button variant="primary" size="lg" block className="mt-4" loading={creating} disabled={available === 0} onClick={start}>
+              <Button variant="primary" size="lg" block className="mt-4 hidden lg:flex" loading={creating} disabled={available === 0} onClick={start}>
                 {available === 0 ? 'Нет подходящих слов' : 'Начать'}
               </Button>
             </div>
@@ -361,6 +368,13 @@ export function Practice() {
             </div>
           </Card>
         </aside>
+      </div>
+
+      <div className="border-line bg-surface/92 fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 backdrop-blur-md pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 lg:hidden">
+        {failure ? <div className="mb-2"><ErrorNote message={failure}/></div> : null}
+        <Button variant="primary" size="lg" block loading={creating} disabled={available === 0} onClick={start}>
+          {available === 0 ? 'Нет подходящих слов' : 'Начать'}
+        </Button>
       </div>
     </div>);
 }
