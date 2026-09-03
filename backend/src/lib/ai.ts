@@ -25,6 +25,14 @@ export const AI_TASK_TYPES = [
     'word_deep_dive',
 ] as const;
 export type AiTaskType = (typeof AI_TASK_TYPES)[number];
+/** Типы в UI «Задания ИИ». `listening` и `writing` временно скрыты — вернуть в массив, когда откроем доступ. */
+export const AI_UI_TASK_TYPES = [
+    'sentence_en_ru',
+    'sentence_ru_en',
+    'grammar_quiz',
+    'cloze',
+    'word_deep_dive',
+] as const satisfies readonly AiTaskType[];
 export const AI_TASK_LABELS: Record<AiTaskType, string> = {
     sentence_en_ru: 'Перевод с английского',
     sentence_ru_en: 'Перевод на английский',

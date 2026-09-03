@@ -1,7 +1,9 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-export const cx = (...classes: (string | false | null | undefined)[]): string => classes.filter(Boolean).join(' ');
+export { Select, type SelectProps } from './Select';
+export { cx } from './cx';
+import { cx } from './cx';
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 type ButtonSize = 'sm' | 'md' | 'lg';
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
@@ -69,18 +71,6 @@ export function Textarea({ label, hint, className, id, ...rest }: TextareaProps)
       {label ? <span className="mb-1.5 block text-[13px] font-medium text-soft">{label}</span> : null}
       <textarea id={fieldId} className={cx(FIELD_BASE, 'resize-y leading-relaxed', className)} {...rest}/>
       {hint ? <span className="mt-1.5 block text-[12px] text-faint">{hint}</span> : null}
-    </label>);
-}
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-    label?: string;
-}
-export function Select({ label, className, id, children, ...rest }: SelectProps) {
-    const fieldId = id ?? rest.name;
-    return (<label className="block" htmlFor={fieldId}>
-      {label ? <span className="mb-1.5 block text-[13px] font-medium text-soft">{label}</span> : null}
-      <select id={fieldId} className={cx(FIELD_BASE, 'cursor-pointer pr-8', className)} {...rest}>
-        {children}
-      </select>
     </label>);
 }
 export function SegmentedControl<T extends string>({ value, onChange, options, className, 'aria-label': ariaLabel, }: {

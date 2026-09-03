@@ -28,6 +28,24 @@ import { SegmentedControl } from '../components/ui';
 
 Для направления перевода EN/RU — `DirectionSwitch` из [`frontend/src/components/DirectionSwitch.tsx`](frontend/src/components/DirectionSwitch.tsx) (обёртка над `SegmentedControl`).
 
+## Select
+
+Для **любого выпадающего списка** используй `Select` из [`frontend/src/components/ui.tsx`](frontend/src/components/ui.tsx) (реализация в [`Select.tsx`](frontend/src/components/Select.tsx)):
+
+- **Не используй** нативный `<select>` — он системный и не совпадает с дизайном Lexio.
+- API совместим с прежним: `value`, `onChange` с `event.target.value`, дочерние `<option>`.
+- Визуал как у `Input`: `bg-raised`, `border-line`, `rounded-xl`, chevron, панель с `shadow-[var(--shadow)]`.
+- Для 2–4 равноправных опций без выпадающего списка — `SegmentedControl`, не `Select`.
+
+```tsx
+import { Select } from '../components/ui';
+
+<Select label="Уровень" value={level} onChange={(e) => setLevel(e.target.value)}>
+  <option value="">Все</option>
+  <option value="A1">A1</option>
+</Select>
+```
+
 ## RatingPoints
 
 Для отображения рейтинговых очков — `RatingPoints`, `RatingPointsIcon`, `RatingPointsLabel` из [`frontend/src/components/RatingPoints.tsx`](frontend/src/components/RatingPoints.tsx).

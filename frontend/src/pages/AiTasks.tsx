@@ -12,7 +12,7 @@ import { useAsync } from '../lib/useAsync';
 import { useAuth } from '../store/auth';
 import { useUi } from '../store/ui';
 const LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-const SELECTABLE = (type: AiTaskType): boolean => type !== 'word_deep_dive' && type !== 'sentence_en_ru';
+const SELECTABLE = (type: AiTaskType): boolean => type !== 'word_deep_dive' && type !== 'sentence_en_ru' && type !== 'listening' && type !== 'writing';
 export function AiTasks() {
     const user = useAuth((state) => state.user);
     const patchUser = useAuth((state) => state.patchUser);
